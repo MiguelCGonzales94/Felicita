@@ -3,10 +3,11 @@ import { useParams, useOutletContext, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle,
   Save, Send, XCircle, RefreshCw, Info, Database, Cloud,
-  TrendingUp, TrendingDown, FileText, Settings
+  TrendingUp, TrendingDown, FileText, Settings, Eye,
 } from 'lucide-react'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
+import DetalleComprobantesModal from '../../components/DetalleComprobantesModal'
 import { pdt621Service, formatoSoles } from '../../services/pdt621Service'
 import { useDebounce } from '../../hooks/useDebounce'
 import {
@@ -45,6 +46,9 @@ export default function DeclaracionEditor() {
   const [modalResultado, setModalResultado] = useState(false)
   const [numOperacion, setNumOperacion] = useState('')
 
+  // Modales de detalle de comprobantes
+  const [modalDetalle, setModalDetalle] = useState<null | 'ventas' | 'compras'>(null)
+
   const ajustesDebounced = useDebounce(ajustes, 600)
 
   useEffect(() => {
@@ -62,8 +66,6 @@ export default function DeclaracionEditor() {
     try {
       const data = await pdt621Service.obtener(id)
       setPdt(data)
-
-      // Sugerir saldo a favor del mes anterior
       const saldo = await pdt621Service.sugerirSaldoFavor(empresa.id, data.ano, data.mes)
       if (saldo.saldo_sugerido > 0) {
         setAjustes(a => ({ ...a, saldo_favor_anterior: saldo.saldo_sugerido }))
@@ -155,6 +157,14 @@ export default function DeclaracionEditor() {
     } finally { setGuardando(false) }
   }
 
+  // Callback cuando se aplican cambios en el modal: recarga el PDT y recalcula
+  async function onSeleccionAplicada() {
+    if (!pdt) return
+    setMensaje({ tipo: 'success', texto: 'Seleccion aplicada. PDT recalculado.' })
+    setTimeout(() => setMensaje(null), 2500)
+    await cargar(pdt.id)
+  }
+
   if (loading || !pdt) {
     return (
       <div className="p-8 flex items-center justify-center text-gray-400">
@@ -167,7 +177,6 @@ export default function DeclaracionEditor() {
   const esEditable = pdt.estado === 'DRAFT' || pdt.estado === 'REJECTED'
   const tieneDatos = Number(pdt.c100_ventas_gravadas) > 0 || Number(pdt.c120_compras_gravadas) > 0
 
-  // Calculos en vivo (si hay) o del PDT guardado
   const totales = calculo || {
     igv: {
       igv_debito: Number(pdt.c140igv_igv_debito),
@@ -224,31 +233,29 @@ export default function DeclaracionEditor() {
           {mensaje && (
             <div className={`rounded-lg p-3 flex items-start gap-2 text-sm ${
               mensaje.tipo === 'success'
-                ? 'bg-success-50 border border-success-600/20 text-success-900'
-                : 'bg-danger-50 border border-danger-600/20 text-danger-900'
+                ? 'bg-success-50 text-success-900 border border-success-600/30'
+                : 'bg-danger-50 text-danger-900 border border-danger-600/30'
             }`}>
-              {mensaje.tipo === 'success'
-                ? <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
-                : <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
-              <span>{mensaje.texto}</span>
+              {mensaje.tipo === 'success' ? <CheckCircle2 size={14} className="mt-0.5" /> : <AlertCircle size={14} className="mt-0.5" />}
+              <p>{mensaje.texto}</p>
             </div>
           )}
 
-          {/* Datos SUNAT */}
+          {/* Datos desde SUNAT */}
           <div className="card">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Database size={16} className="text-brand-800" />
-                <h2 className="font-heading font-bold text-gray-900">Datos desde SUNAT</h2>
-                {importacion && (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                <h2 className="font-heading font-bold text-gray-900 flex items-center gap-2">
+                  <Database size={14} className="text-brand-800" />
+                  Datos desde SUNAT
+                </h2>
+                {tieneDatos && importacion && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                     importacion.fuente === 'SUNAT_SIRE'
                       ? 'bg-success-50 text-success-900'
                       : 'bg-warning-50 text-warning-900'
                   }`}>
-                    {importacion.fuente === 'SUNAT_SIRE'
-                      ? <><Cloud size={10} /> SUNAT SIRE real</>
-                      : <><Database size={10} /> Datos simulados</>}
+                    {importacion.fuente === 'SUNAT_SIRE' ? 'Datos reales' : 'Datos simulados'}
                   </span>
                 )}
               </div>
@@ -276,9 +283,19 @@ export default function DeclaracionEditor() {
               </div>
             ) : (
               <div className="grid grid-cols-2 divide-x divide-gray-100">
+                {/* ── VENTAS ── */}
                 <div className="p-5">
-                  <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold mb-3">
-                    <TrendingUp size={12} className="text-success-600" /> Ventas (RVIE)
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                      <TrendingUp size={12} className="text-success-600" /> Ventas (RVIE)
+                    </div>
+                    <button
+                      onClick={() => setModalDetalle('ventas')}
+                      className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
+                      title="Ver detalle de comprobantes"
+                    >
+                      <Eye size={12} /> Ver detalle
+                    </button>
                   </div>
                   <div className="space-y-1 text-sm">
                     <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c100_ventas_gravadas))} />
@@ -289,9 +306,20 @@ export default function DeclaracionEditor() {
                     </div>
                   </div>
                 </div>
+
+                {/* ── COMPRAS ── */}
                 <div className="p-5">
-                  <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold mb-3">
-                    <TrendingDown size={12} className="text-brand-600" /> Compras (RCE)
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold">
+                      <TrendingDown size={12} className="text-brand-600" /> Compras (RCE)
+                    </div>
+                    <button
+                      onClick={() => setModalDetalle('compras')}
+                      className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
+                      title="Ver detalle de comprobantes"
+                    >
+                      <Eye size={12} /> Ver detalle
+                    </button>
                   </div>
                   <div className="space-y-1 text-sm">
                     <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c120_compras_gravadas))} />
@@ -304,84 +332,130 @@ export default function DeclaracionEditor() {
             )}
           </div>
 
-          {/* Ajustes */}
-          {tieneDatos && (
-            <div className="card">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-                <Settings size={16} className="text-brand-800" />
-                <h2 className="font-heading font-bold text-gray-900">Ajustes del contador</h2>
+          {/* Ajustes del contador */}
+          <div className="card">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="font-heading font-bold text-gray-900 flex items-center gap-2">
+                <Settings size={14} className="text-brand-800" />
+                Ajustes del contador
+              </h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Creditos IGV</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <AjusteInput
+                    label="Saldo a favor mes anterior"
+                    value={ajustes.saldo_favor_anterior || 0}
+                    onChange={v => setAjustes(a => ({ ...a, saldo_favor_anterior: v }))}
+                    disabled={!esEditable}
+                    hint="Sugerido del PDT anterior"
+                  />
+                  <AjusteInput
+                    label="Percepciones del periodo"
+                    value={ajustes.percepciones_periodo || 0}
+                    onChange={v => setAjustes(a => ({ ...a, percepciones_periodo: v }))}
+                    disabled={!esEditable}
+                  />
+                  <AjusteInput
+                    label="Retenciones del periodo"
+                    value={ajustes.retenciones_periodo || 0}
+                    onChange={v => setAjustes(a => ({ ...a, retenciones_periodo: v }))}
+                    disabled={!esEditable}
+                  />
+                </div>
               </div>
 
-              <div className="p-5 space-y-5">
-                {/* IGV */}
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                    Creditos IGV
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <NumericField
-                      label="Saldo a favor mes anterior"
-                      value={ajustes.saldo_favor_anterior || 0}
-                      onChange={v => setAjustes(a => ({ ...a, saldo_favor_anterior: v }))}
-                      disabled={!esEditable}
-                      hint="Sugerido del PDT anterior"
-                    />
-                    <NumericField
-                      label="Percepciones del periodo"
-                      value={ajustes.percepciones_periodo || 0}
-                      onChange={v => setAjustes(a => ({ ...a, percepciones_periodo: v }))}
-                      disabled={!esEditable}
-                    />
-                    <NumericField
-                      label="Retenciones del periodo"
-                      value={ajustes.retenciones_periodo || 0}
-                      onChange={v => setAjustes(a => ({ ...a, retenciones_periodo: v }))}
-                      disabled={!esEditable}
-                    />
-                  </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Creditos renta</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <AjusteInput
+                    label="Pagos anticipados"
+                    value={ajustes.pagos_anticipados || 0}
+                    onChange={v => setAjustes(a => ({ ...a, pagos_anticipados: v }))}
+                    disabled={!esEditable}
+                  />
+                  <AjusteInput
+                    label="Retenciones renta"
+                    value={ajustes.retenciones_renta || 0}
+                    onChange={v => setAjustes(a => ({ ...a, retenciones_renta: v }))}
+                    disabled={!esEditable}
+                  />
                 </div>
+              </div>
+            </div>
+          </div>
 
-                {/* Renta */}
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                    Creditos Renta
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <NumericField
-                      label="Pagos anticipados"
-                      value={ajustes.pagos_anticipados || 0}
-                      onChange={v => setAjustes(a => ({ ...a, pagos_anticipados: v }))}
-                      disabled={!esEditable}
-                    />
-                    <NumericField
-                      label="Retenciones renta"
-                      value={ajustes.retenciones_renta || 0}
-                      onChange={v => setAjustes(a => ({ ...a, retenciones_renta: v }))}
-                      disabled={!esEditable}
-                    />
-                  </div>
-                </div>
+          {/* Acciones segun estado */}
+          {esEditable && (
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={handleGuardarBorrador}
+                disabled={guardando}
+                className="btn-secondary flex items-center gap-2"
+              >
+                {guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Guardar borrador
+              </button>
+              <button
+                onClick={handleGenerar}
+                disabled={guardando || !tieneDatos}
+                className="btn-primary flex items-center gap-2"
+                title={!tieneDatos ? 'Primero descarga datos desde SUNAT' : ''}
+              >
+                <FileText size={14} /> Generar declaracion
+              </button>
+            </div>
+          )}
 
-                {/* NRUS categoria */}
-                {empresa.regimen_tributario === 'NRUS' && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                      NRUS
-                    </h3>
-                    <div>
-                      <label className="label">Categoria NRUS</label>
-                      <select
-                        value={ajustes.categoria_nrus || 1}
-                        onChange={e => setAjustes(a => ({ ...a, categoria_nrus: Number(e.target.value) }))}
-                        className="input max-w-xs"
-                        disabled={!esEditable}
-                      >
-                        <option value={1}>Categoria 1 - Hasta S/ 5,000 / mes (cuota S/ 20)</option>
-                        <option value={2}>Categoria 2 - Hasta S/ 8,000 / mes (cuota S/ 50)</option>
-                      </select>
-                    </div>
-                  </div>
+          {pdt.estado === 'GENERATED' && (
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => pdt621Service.cambiarEstado(pdt.id, 'DRAFT').then(p => setPdt(p))}
+                className="btn-secondary"
+              >
+                Volver a borrador
+              </button>
+              <button
+                onClick={() => setModalPresentar(true)}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Send size={14} /> Marcar como presentada
+              </button>
+            </div>
+          )}
+
+          {pdt.estado === 'SUBMITTED' && (
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => setModalResultado(true)}
+                className="btn-primary flex items-center gap-2"
+              >
+                <CheckCircle2 size={14} /> Registrar resultado
+              </button>
+            </div>
+          )}
+
+          {pdt.estado === 'ACCEPTED' && (
+            <div className="rounded-lg bg-success-50 border border-success-600/30 p-4 flex items-start gap-3">
+              <CheckCircle2 className="text-success-600 flex-shrink-0 mt-0.5" size={16} />
+              <div className="text-sm">
+                <p className="font-semibold text-success-900">Declaracion aceptada por SUNAT</p>
+                {pdt.numero_operacion && (
+                  <p className="text-success-700 text-xs mt-1">
+                    Numero de operacion: <span className="font-mono font-semibold">{pdt.numero_operacion}</span>
+                  </p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {pdt.estado === 'REJECTED' && pdt.mensaje_error_sunat && (
+            <div className="rounded-lg bg-danger-50 border border-danger-600/30 p-4 flex items-start gap-3">
+              <XCircle className="text-danger-600 flex-shrink-0 mt-0.5" size={16} />
+              <div className="text-sm">
+                <p className="font-semibold text-danger-900">Declaracion rechazada</p>
+                <p className="text-danger-700 text-xs mt-1">{pdt.mensaje_error_sunat}</p>
               </div>
             </div>
           )}
@@ -417,20 +491,10 @@ export default function DeclaracionEditor() {
                     <DataRow label="- Retenciones" value={formatoSoles(totales.igv.retenciones_aplicadas)} chico />
                   )}
                   <div className={`pt-2 mt-2 border-t border-gray-200 p-2 rounded ${
-                    totales.igv.igv_a_pagar > 0 ? 'bg-brand-50' : 'bg-success-50'
+                    totales.igv.igv_a_pagar > 0 ? 'bg-brand-50' : 'bg-gray-50'
                   }`}>
-                    <DataRow
-                      label="IGV a pagar"
-                      value={formatoSoles(totales.igv.igv_a_pagar)}
-                      destacado
-                    />
+                    <DataRow label="IGV a pagar" value={formatoSoles(totales.igv.igv_a_pagar)} destacado />
                   </div>
-                  {totales.igv.saldo_favor_siguiente > 0 && (
-                    <div className="bg-success-50 p-2 rounded text-xs text-success-900 flex items-start gap-1.5">
-                      <Info size={12} className="flex-shrink-0 mt-0.5" />
-                      <span>Saldo a favor prox mes: <strong>{formatoSoles(totales.igv.saldo_favor_siguiente)}</strong></span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -448,195 +512,138 @@ export default function DeclaracionEditor() {
                   {totales.renta.creditos_aplicados > 0 && (
                     <DataRow label="- Creditos" value={formatoSoles(totales.renta.creditos_aplicados)} chico />
                   )}
-                  <div className="pt-2 mt-2 border-t border-gray-200 bg-brand-50 p-2 rounded">
-                    <DataRow
-                      label="Renta a pagar"
-                      value={formatoSoles(totales.renta.renta_a_pagar)}
-                      destacado
-                    />
+                  <div className={`pt-2 mt-2 border-t border-gray-200 p-2 rounded ${
+                    totales.renta.renta_a_pagar > 0 ? 'bg-brand-50' : 'bg-gray-50'
+                  }`}>
+                    <DataRow label="Renta a pagar" value={formatoSoles(totales.renta.renta_a_pagar)} destacado />
                   </div>
                 </div>
               </div>
 
               {/* Total */}
-              <div className="bg-sidebar rounded-lg p-4 text-white">
-                <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                  Total a pagar
-                </p>
-                <p className="text-2xl font-heading font-bold font-mono">
+              <div className="bg-sidebar-bg text-white rounded-lg p-4">
+                <p className="text-[10px] font-semibold text-sidebar-muted uppercase tracking-wider mb-1">Total a pagar</p>
+                <p className="font-mono font-bold text-2xl">
                   {formatoSoles(totales.total_a_pagar)}
                 </p>
               </div>
-
-              {/* Acciones segun estado */}
-              {esEditable && (
-                <div className="space-y-2 pt-2 border-t border-gray-100">
-                  <button
-                    onClick={handleGuardarBorrador}
-                    disabled={guardando}
-                    className="btn-secondary w-full flex items-center justify-center gap-2 text-sm"
-                  >
-                    {guardando
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <Save size={14} />}
-                    Guardar borrador
-                  </button>
-                  <button
-                    onClick={handleGenerar}
-                    disabled={guardando || !tieneDatos}
-                    className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
-                  >
-                    <FileText size={14} />
-                    Generar declaracion
-                  </button>
-                </div>
-              )}
-
-              {pdt.estado === 'GENERATED' && (
-                <div className="space-y-2 pt-2 border-t border-gray-100">
-                  <button
-                    onClick={() => setModalPresentar(true)}
-                    className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Send size={14} />
-                    Marcar como presentada
-                  </button>
-                </div>
-              )}
-
-              {pdt.estado === 'SUBMITTED' && (
-                <div className="space-y-2 pt-2 border-t border-gray-100">
-                  <button
-                    onClick={() => setModalResultado(true)}
-                    className="btn-secondary w-full flex items-center justify-center gap-2 text-sm"
-                  >
-                    Registrar resultado SUNAT
-                  </button>
-                </div>
-              )}
-
-              {pdt.estado === 'ACCEPTED' && (
-                <div className="bg-success-50 border border-success-600/20 rounded-lg p-3 text-xs text-success-900 flex items-start gap-2">
-                  <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Declaracion aceptada</p>
-                    {pdt.numero_operacion && (
-                      <p className="font-mono mt-1">Op. {pdt.numero_operacion}</p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {pdt.estado === 'REJECTED' && pdt.mensaje_error_sunat && (
-                <div className="bg-danger-50 border border-danger-600/20 rounded-lg p-3 text-xs text-danger-900 flex items-start gap-2">
-                  <XCircle size={14} className="flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold mb-1">Rechazada por SUNAT</p>
-                    <p>{pdt.mensaje_error_sunat}</p>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
+
       </div>
 
-      {/* Modal presentar */}
+      {/* ── Modal: Marcar como presentada ── */}
       <Modal
         isOpen={modalPresentar}
         onClose={() => !guardando && setModalPresentar(false)}
         title="Marcar como presentada"
-        description="Registra el numero de operacion que SUNAT te devuelva"
+        description="Registra el numero de operacion que devolvio SUNAT"
         size="sm"
         footer={
           <>
             <button onClick={() => setModalPresentar(false)} className="btn-secondary" disabled={guardando}>
               Cancelar
             </button>
-            <button onClick={handlePresentar} className="btn-primary flex items-center gap-2" disabled={guardando}>
-              {guardando && <Loader2 size={14} className="animate-spin" />}
-              Marcar presentada
+            <button onClick={handlePresentar} disabled={guardando} className="btn-primary">
+              {guardando ? <Loader2 size={14} className="animate-spin" /> : 'Confirmar'}
             </button>
           </>
         }
       >
-        <div>
-          <label className="label">Numero de operacion (opcional)</label>
-          <input
-            type="text"
-            value={numOperacion}
-            onChange={e => setNumOperacion(e.target.value)}
-            className="input font-mono"
-            placeholder="Ej: 123456789"
-          />
-          <p className="text-xs text-gray-500 mt-2">
-            Podras ingresarlo despues si aun no lo tienes
-          </p>
+        <div className="space-y-3">
+          <div>
+            <label className="label">Numero de operacion (opcional)</label>
+            <input
+              value={numOperacion}
+              onChange={e => setNumOperacion(e.target.value)}
+              className="input font-mono"
+              placeholder="Ejemplo: 1234567890"
+            />
+          </div>
+          <div className="bg-warning-50 border border-warning-600/30 rounded-lg p-3 flex gap-2 text-xs">
+            <Info size={14} className="text-warning-700 flex-shrink-0 mt-0.5" />
+            <p className="text-warning-900">
+              Asegurate de haber presentado el PDT en la plataforma de SUNAT antes de marcar como presentada.
+            </p>
+          </div>
         </div>
       </Modal>
 
-      {/* Modal resultado */}
+      {/* ── Modal: Registrar resultado ── */}
       <Modal
         isOpen={modalResultado}
         onClose={() => !guardando && setModalResultado(false)}
-        title="Resultado de SUNAT"
-        description="Que devolvio SUNAT sobre esta declaracion?"
+        title="Registrar resultado"
+        description="Indica si SUNAT acepto o rechazo la declaracion"
         size="sm"
+        footer={
+          <button onClick={() => setModalResultado(false)} className="btn-secondary" disabled={guardando}>
+            Cerrar
+          </button>
+        }
       >
         <div className="space-y-3">
           <button
             onClick={() => handleResultado('ACCEPTED')}
             disabled={guardando}
-            className="w-full p-4 bg-success-50 hover:bg-success-100 border border-success-600/30 rounded-lg flex items-center gap-3 transition-colors"
+            className="w-full p-4 border-2 border-success-600/30 hover:bg-success-50 rounded-lg flex items-center gap-3 transition-colors"
           >
-            <CheckCircle2 size={20} className="text-success-600" />
+            <CheckCircle2 className="text-success-600" size={20} />
             <div className="text-left">
-              <p className="font-semibold text-success-900 text-sm">Aceptada</p>
-              <p className="text-xs text-success-700">SUNAT acepto la declaracion correctamente</p>
+              <p className="font-semibold text-success-900">Aceptada</p>
+              <p className="text-xs text-success-700">SUNAT acepto la declaracion</p>
             </div>
           </button>
 
           <button
             onClick={() => {
-              const msg = prompt('Mensaje de rechazo (opcional):')
+              const msg = prompt('Mensaje de error de SUNAT (opcional):')
               handleResultado('REJECTED', msg || undefined)
             }}
             disabled={guardando}
-            className="w-full p-4 bg-danger-50 hover:bg-danger-100 border border-danger-600/30 rounded-lg flex items-center gap-3 transition-colors"
+            className="w-full p-4 border-2 border-danger-600/30 hover:bg-danger-50 rounded-lg flex items-center gap-3 transition-colors"
           >
-            <XCircle size={20} className="text-danger-600" />
+            <XCircle className="text-danger-600" size={20} />
             <div className="text-left">
-              <p className="font-semibold text-danger-900 text-sm">Rechazada</p>
+              <p className="font-semibold text-danger-900">Rechazada</p>
               <p className="text-xs text-danger-700">SUNAT rechazo la declaracion</p>
             </div>
           </button>
         </div>
       </Modal>
+
+      {/* ── Modal: Detalle de comprobantes ── */}
+      {modalDetalle && pdt && (
+        <DetalleComprobantesModal
+          isOpen={!!modalDetalle}
+          onClose={() => setModalDetalle(null)}
+          pdtId={pdt.id}
+          tipo={modalDetalle}
+          editable={esEditable}
+          onAplicado={onSeleccionAplicada}
+        />
+      )}
     </>
   )
 }
 
-// ── Helpers ─────────────────────────────────────────
+
+// ── Componentes internos ────────────────────────────
+
 function DataRow({ label, value, destacado, chico }: {
-  label: string
-  value: string
-  destacado?: boolean
-  chico?: boolean
+  label: string; value: string; destacado?: boolean; chico?: boolean
 }) {
   return (
     <div className={`flex items-center justify-between ${chico ? 'text-xs text-gray-500' : ''}`}>
-      <span className={destacado ? 'font-semibold' : chico ? '' : 'text-gray-600'}>{label}</span>
-      <span className={`font-mono ${destacado ? 'font-bold' : ''}`}>{value}</span>
+      <span className={destacado ? 'font-semibold text-gray-900' : 'text-gray-600'}>{label}</span>
+      <span className={`font-mono ${destacado ? 'font-bold text-gray-900' : 'text-gray-700'}`}>{value}</span>
     </div>
   )
 }
 
-function NumericField({ label, value, onChange, disabled, hint }: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-  disabled?: boolean
-  hint?: string
+function AjusteInput({ label, value, onChange, disabled, hint }: {
+  label: string; value: number; onChange: (v: number) => void; disabled?: boolean; hint?: string
 }) {
   return (
     <div>
@@ -645,16 +652,16 @@ function NumericField({ label, value, onChange, disabled, hint }: {
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">S/</span>
         <input
           type="number"
-          step="0.01"
           min="0"
+          step="0.01"
           value={value || ''}
           onChange={e => onChange(Number(e.target.value) || 0)}
           disabled={disabled}
-          className="input pl-8 font-mono text-right"
+          className="input font-mono text-right pl-8 disabled:bg-gray-50 disabled:text-gray-400"
           placeholder="0.00"
         />
       </div>
-      {hint && <p className="text-[10px] text-gray-400 mt-1">{hint}</p>}
+      {hint && <p className="text-[11px] text-gray-500 mt-1">{hint}</p>}
     </div>
   )
 }

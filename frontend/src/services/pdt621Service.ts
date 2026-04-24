@@ -1,6 +1,7 @@
 import api from './api'
 import type {
-  PDT621, PDT621ListItem, ImportacionSunat, Ajustes, ResultadoCalculo, EstadoPDT
+  PDT621, PDT621ListItem, ImportacionSunat, Ajustes, ResultadoCalculo, EstadoPDT,
+  DetalleVentasResponse, DetalleComprasResponse, SeleccionItem,
 } from '../types/pdt621'
 
 export const pdt621Service = {
@@ -76,20 +77,42 @@ export const pdt621Service = {
   // Cambiar estado
   async cambiarEstado(pdtId: number, nuevoEstado: EstadoPDT, numero_operacion?: string, mensaje?: string) {
     const { data } = await api.post(`/pdt621/${pdtId}/cambiar-estado`, {
-      nuevo_estado: nuevoEstado,
-      numero_operacion,
-      mensaje,
+      nuevo_estado: nuevoEstado, numero_operacion, mensaje,
     })
     return data as PDT621
   },
 
-  // Eliminar borrador
-  async eliminar(pdtId: number) {
-    await api.delete(`/pdt621/${pdtId}`)
+  // ── DETALLE DE COMPROBANTES ─────────────────────────
+
+  async obtenerDetalleVentas(pdtId: number) {
+    const { data } = await api.get(`/pdt621/${pdtId}/detalle-ventas`)
+    return data as DetalleVentasResponse
+  },
+
+  async obtenerDetalleCompras(pdtId: number) {
+    const { data } = await api.get(`/pdt621/${pdtId}/detalle-compras`)
+    return data as DetalleComprasResponse
+  },
+
+  async aplicarSeleccionVentas(pdtId: number, selecciones: SeleccionItem[]) {
+    const { data } = await api.post(
+      `/pdt621/${pdtId}/detalle-ventas/aplicar-seleccion`,
+      { selecciones }
+    )
+    return data as PDT621
+  },
+
+  async aplicarSeleccionCompras(pdtId: number, selecciones: SeleccionItem[]) {
+    const { data } = await api.post(
+      `/pdt621/${pdtId}/detalle-compras/aplicar-seleccion`,
+      { selecciones }
+    )
+    return data as PDT621
   },
 }
 
-// Helper para formatear numeros como moneda peruana
+
+// Helpers
 export function formatoSoles(n: number): string {
   return `S/ ${n.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }

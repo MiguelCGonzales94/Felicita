@@ -1,3 +1,201 @@
+# ============================================================
+#  FELICITA - Entrega 1 Parte A: Modelos + Mock SIRE realista
+#  Agrega tablas pdt621_ventas_detalle y pdt621_compras_detalle
+#  Actualiza el mock SIRE para generar comprobantes persistibles
+#  Uso: .\entrega1a_detalle_comprobantes_modelos.ps1
+# ============================================================
+
+Write-Host ""
+Write-Host "Entrega 1 - Parte A: Modelos + Mock SIRE realista" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path "backend")) {
+    Write-Host "ERROR: ejecuta desde la raiz 'felicita/'" -ForegroundColor Red
+    exit 1
+}
+
+# ============================================================
+# 1. models/models.py - Agregar modelos PDT621VentaDetalle y PDT621CompraDetalle
+# ============================================================
+
+Write-Host "Agregando modelos de detalle de comprobantes..." -ForegroundColor Yellow
+
+$modelsPath = "backend/app/models/models.py"
+$modelsContent = Get-Content $modelsPath -Raw
+
+if ($modelsContent -match "class PDT621VentaDetalle") {
+    Write-Host "  [SKIP] Modelos ya existen" -ForegroundColor Gray
+} else {
+
+$nuevosModelos = @'
+
+
+# ════════════════════════════════════════════════════════════
+# DETALLE DE COMPROBANTES IMPORTADOS DESDE SIRE
+# Un registro por comprobante descargado. Permite al contador
+# marcar/desmarcar cuales entran al calculo del PDT.
+# ════════════════════════════════════════════════════════════
+
+class PDT621VentaDetalle(Base):
+    __tablename__ = "pdt621_ventas_detalle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pdt621_id = Column(Integer, ForeignKey("pdt621s.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Datos del comprobante (RVIE)
+    tipo_comprobante = Column(String(4), nullable=False)      # 01=Factura, 03=Boleta, 07=NC, 08=ND
+    serie = Column(String(10), nullable=False)
+    numero = Column(String(20), nullable=False)
+    fecha_emision = Column(Date, nullable=False)
+    ruc_cliente = Column(String(11))
+    razon_social_cliente = Column(String(255), nullable=False)
+
+    # Importes
+    base_gravada = Column(Numeric(15, 2), default=0)
+    base_no_gravada = Column(Numeric(15, 2), default=0)
+    exportacion = Column(Numeric(15, 2), default=0)
+    igv = Column(Numeric(15, 2), default=0)
+    total = Column(Numeric(15, 2), nullable=False)
+
+    # Control
+    incluido = Column(Boolean, default=True, nullable=False)  # Si entra al calculo
+    fuente = Column(String(20), default="SUNAT_SIRE")         # SUNAT_SIRE o MOCK
+    fecha_importacion = Column(DateTime, default=datetime.utcnow)
+
+    # Relacion
+    pdt621 = relationship("PDT621", back_populates="ventas_detalle")
+
+
+class PDT621CompraDetalle(Base):
+    __tablename__ = "pdt621_compras_detalle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pdt621_id = Column(Integer, ForeignKey("pdt621s.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Datos del comprobante (RCE)
+    tipo_comprobante = Column(String(4), nullable=False)
+    serie = Column(String(10), nullable=False)
+    numero = Column(String(20), nullable=False)
+    fecha_emision = Column(Date, nullable=False)
+    ruc_proveedor = Column(String(11))
+    razon_social_proveedor = Column(String(255), nullable=False)
+
+    # Importes
+    base_gravada = Column(Numeric(15, 2), default=0)
+    base_no_gravada = Column(Numeric(15, 2), default=0)
+    igv = Column(Numeric(15, 2), default=0)
+    total = Column(Numeric(15, 2), nullable=False)
+
+    # Clasificacion del credito (para casos mixtos)
+    # GRAVADA_EXCLUSIVA, GRAVADA_Y_NO_GRAVADA, NO_GRAVADA_EXCLUSIVA
+    tipo_destino = Column(String(30), default="GRAVADA_EXCLUSIVA")
+
+    # Control
+    incluido = Column(Boolean, default=True, nullable=False)
+    fuente = Column(String(20), default="SUNAT_SIRE")
+    fecha_importacion = Column(DateTime, default=datetime.utcnow)
+
+    # Relacion
+    pdt621 = relationship("PDT621", back_populates="compras_detalle")
+'@
+
+    # Agregar al final del archivo
+    $modelsContent = $modelsContent.TrimEnd() + "`r`n" + $nuevosModelos + "`r`n"
+
+    # Agregar back_populates en PDT621 (buscar definicion de la clase)
+    $pdtRelPattern = "class PDT621\(Base\):"
+    if ($modelsContent -match $pdtRelPattern) {
+        # Agregar relaciones al final de PDT621 (antes de la siguiente clase o EOF).
+        # Estrategia: buscar "class PDT621" y agregar las relaciones dentro.
+        # Usaremos marker: si existe "detalles = relationship" despues lo extendemos.
+        if ($modelsContent -notmatch "ventas_detalle\s*=\s*relationship") {
+            $rel = @'
+
+    # Relaciones con el detalle de comprobantes
+    ventas_detalle = relationship("PDT621VentaDetalle", back_populates="pdt621", cascade="all, delete-orphan")
+    compras_detalle = relationship("PDT621CompraDetalle", back_populates="pdt621", cascade="all, delete-orphan")
+'@
+            # Insertar justo despues de la ultima columna de PDT621.
+            # Heuristica: buscamos la clase PDT621 completa y le agregamos las relaciones
+            # antes de la siguiente "class " o al final.
+            $regex = [regex]'(class PDT621\(Base\):[\s\S]*?)(?=\r?\nclass |\Z)'
+            $match = $regex.Match($modelsContent)
+            if ($match.Success) {
+                $bloque = $match.Value.TrimEnd() + "`r`n" + $rel + "`r`n"
+                $modelsContent = $modelsContent.Replace($match.Value, $bloque)
+            }
+        }
+    }
+
+    Set-Content $modelsPath $modelsContent -NoNewline
+    Write-Host "  [OK] models.py actualizado con PDT621VentaDetalle y PDT621CompraDetalle" -ForegroundColor Green
+}
+
+# ============================================================
+# 2. Script SQL de migracion
+# ============================================================
+
+Write-Host ""
+Write-Host "Creando script de migracion SQL..." -ForegroundColor Yellow
+
+$migracionSql = @'
+-- Migracion: detalle de comprobantes RVIE/RCE para el PDT 621
+-- Se ejecuta automaticamente al reiniciar el backend (Base.metadata.create_all),
+-- pero si prefieres ejecutarlo manualmente desde pgAdmin o psql, aqui esta.
+
+CREATE TABLE IF NOT EXISTS pdt621_ventas_detalle (
+    id                     SERIAL PRIMARY KEY,
+    pdt621_id              INTEGER NOT NULL REFERENCES pdt621s(id) ON DELETE CASCADE,
+    tipo_comprobante       VARCHAR(4) NOT NULL,
+    serie                  VARCHAR(10) NOT NULL,
+    numero                 VARCHAR(20) NOT NULL,
+    fecha_emision          DATE NOT NULL,
+    ruc_cliente            VARCHAR(11),
+    razon_social_cliente   VARCHAR(255) NOT NULL,
+    base_gravada           NUMERIC(15,2) DEFAULT 0,
+    base_no_gravada        NUMERIC(15,2) DEFAULT 0,
+    exportacion            NUMERIC(15,2) DEFAULT 0,
+    igv                    NUMERIC(15,2) DEFAULT 0,
+    total                  NUMERIC(15,2) NOT NULL,
+    incluido               BOOLEAN DEFAULT TRUE NOT NULL,
+    fuente                 VARCHAR(20) DEFAULT 'SUNAT_SIRE',
+    fecha_importacion      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pdt621_ventas_detalle_pdt ON pdt621_ventas_detalle(pdt621_id);
+
+CREATE TABLE IF NOT EXISTS pdt621_compras_detalle (
+    id                       SERIAL PRIMARY KEY,
+    pdt621_id                INTEGER NOT NULL REFERENCES pdt621s(id) ON DELETE CASCADE,
+    tipo_comprobante         VARCHAR(4) NOT NULL,
+    serie                    VARCHAR(10) NOT NULL,
+    numero                   VARCHAR(20) NOT NULL,
+    fecha_emision            DATE NOT NULL,
+    ruc_proveedor            VARCHAR(11),
+    razon_social_proveedor   VARCHAR(255) NOT NULL,
+    base_gravada             NUMERIC(15,2) DEFAULT 0,
+    base_no_gravada          NUMERIC(15,2) DEFAULT 0,
+    igv                      NUMERIC(15,2) DEFAULT 0,
+    total                    NUMERIC(15,2) NOT NULL,
+    tipo_destino             VARCHAR(30) DEFAULT 'GRAVADA_EXCLUSIVA',
+    incluido                 BOOLEAN DEFAULT TRUE NOT NULL,
+    fuente                   VARCHAR(20) DEFAULT 'SUNAT_SIRE',
+    fecha_importacion        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pdt621_compras_detalle_pdt ON pdt621_compras_detalle(pdt621_id);
+'@
+
+New-Item -ItemType Directory -Force -Path "backend/migrations" | Out-Null
+Set-Content "backend/migrations/002_detalle_comprobantes.sql" $migracionSql
+Write-Host "  [OK] backend/migrations/002_detalle_comprobantes.sql" -ForegroundColor Green
+
+# ============================================================
+# 3. services/sire_service.py - Mock mejorado y realista
+# ============================================================
+
+Write-Host ""
+Write-Host "Reescribiendo sire_service.py con mock realista..." -ForegroundColor Yellow
+
+@'
 """
 Servicio SIRE - Wrapper principal.
 
@@ -280,3 +478,28 @@ def _generar_rce_mock(ruc: str, ano: int, mes: int) -> ResumenRCE:
         comprobantes=comprobantes,
         fuente="MOCK",
     )
+'@ | Set-Content "backend/app/services/sire_service.py"
+
+Write-Host "  [OK] sire_service.py reescrito (mocks realistas con 12-18 ventas y 15-22 compras)" -ForegroundColor Green
+
+# ============================================================
+# 4. Resumen
+# ============================================================
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "PARTE A COMPLETADA" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Archivos modificados:" -ForegroundColor Yellow
+Write-Host "  [OK] backend/app/models/models.py" -ForegroundColor Green
+Write-Host "  [OK] backend/app/services/sire_service.py" -ForegroundColor Green
+Write-Host "  [OK] backend/migrations/002_detalle_comprobantes.sql" -ForegroundColor Green
+Write-Host ""
+Write-Host "IMPORTANTE: al reiniciar el backend, SQLAlchemy creara las tablas automaticamente" -ForegroundColor Yellow
+Write-Host "via Base.metadata.create_all(). No necesitas correr el SQL a mano." -ForegroundColor Gray
+Write-Host ""
+Write-Host "SIGUIENTE PASO:" -ForegroundColor Cyan
+Write-Host "  1. Reinicia uvicorn (Ctrl+C y vuelve a correrlo) para crear las tablas" -ForegroundColor Yellow
+Write-Host "  2. Luego avisame para generar la PARTE B (servicios + endpoints)" -ForegroundColor Yellow
+Write-Host ""

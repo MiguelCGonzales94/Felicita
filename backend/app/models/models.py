@@ -5,6 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+from datetime import datetime
 
 
 class EstudioContable(Base):
@@ -145,6 +146,9 @@ class PDT621(Base):
         Index("idx_pdt621_vencimiento", "fecha_vencimiento"),
     )
 
+    # Relaciones con el detalle de comprobantes
+    ventas_detalle = relationship("PDT621VentaDetalle", back_populates="pdt621", cascade="all, delete-orphan")
+    compras_detalle = relationship("PDT621CompraDetalle", back_populates="pdt621", cascade="all, delete-orphan")
 
 class PDT621Detalle(Base):
     __tablename__ = "pdt621_detalles"
@@ -327,3 +331,72 @@ class LogEvento(Base):
         Index("idx_log_empresa", "empresa_id"),
         Index("idx_log_tipo", "tipo_evento"),
     )
+
+
+# ════════════════════════════════════════════════════════════
+# DETALLE DE COMPROBANTES IMPORTADOS DESDE SIRE
+# Un registro por comprobante descargado. Permite al contador
+# marcar/desmarcar cuales entran al calculo del PDT.
+# ════════════════════════════════════════════════════════════
+
+class PDT621VentaDetalle(Base):
+    __tablename__ = "pdt621_ventas_detalle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pdt621_id = Column(Integer, ForeignKey("pdt621s.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Datos del comprobante (RVIE)
+    tipo_comprobante = Column(String(4), nullable=False)      # 01=Factura, 03=Boleta, 07=NC, 08=ND
+    serie = Column(String(10), nullable=False)
+    numero = Column(String(20), nullable=False)
+    fecha_emision = Column(Date, nullable=False)
+    ruc_cliente = Column(String(11))
+    razon_social_cliente = Column(String(255), nullable=False)
+
+    # Importes
+    base_gravada = Column(Numeric(15, 2), default=0)
+    base_no_gravada = Column(Numeric(15, 2), default=0)
+    exportacion = Column(Numeric(15, 2), default=0)
+    igv = Column(Numeric(15, 2), default=0)
+    total = Column(Numeric(15, 2), nullable=False)
+
+    # Control
+    incluido = Column(Boolean, default=True, nullable=False)  # Si entra al calculo
+    fuente = Column(String(20), default="SUNAT_SIRE")         # SUNAT_SIRE o MOCK
+    fecha_importacion = Column(DateTime, default=datetime.utcnow)
+
+    # Relacion
+    pdt621 = relationship("PDT621", back_populates="ventas_detalle")
+
+
+class PDT621CompraDetalle(Base):
+    __tablename__ = "pdt621_compras_detalle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pdt621_id = Column(Integer, ForeignKey("pdt621s.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Datos del comprobante (RCE)
+    tipo_comprobante = Column(String(4), nullable=False)
+    serie = Column(String(10), nullable=False)
+    numero = Column(String(20), nullable=False)
+    fecha_emision = Column(Date, nullable=False)
+    ruc_proveedor = Column(String(11))
+    razon_social_proveedor = Column(String(255), nullable=False)
+
+    # Importes
+    base_gravada = Column(Numeric(15, 2), default=0)
+    base_no_gravada = Column(Numeric(15, 2), default=0)
+    igv = Column(Numeric(15, 2), default=0)
+    total = Column(Numeric(15, 2), nullable=False)
+
+    # Clasificacion del credito (para casos mixtos)
+    # GRAVADA_EXCLUSIVA, GRAVADA_Y_NO_GRAVADA, NO_GRAVADA_EXCLUSIVA
+    tipo_destino = Column(String(30), default="GRAVADA_EXCLUSIVA")
+
+    # Control
+    incluido = Column(Boolean, default=True, nullable=False)
+    fuente = Column(String(20), default="SUNAT_SIRE")
+    fecha_importacion = Column(DateTime, default=datetime.utcnow)
+
+    # Relacion
+    pdt621 = relationship("PDT621", back_populates="compras_detalle")

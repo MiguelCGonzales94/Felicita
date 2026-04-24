@@ -201,7 +201,7 @@ export default function DeclaracionesEmpresa() {
               onChange={e => setFormGenerar(f => ({ ...f, mes: Number(e.target.value) }))}
               className="input"
             >
-              {MESES_LABEL.slice(1).map((m, i) => (
+              {Object.values(MESES_LABEL).map((m, i) => (
                 <option key={i + 1} value={i + 1}>{m}</option>
               ))}
             </select>
@@ -290,8 +290,8 @@ function PDTRow({ pdt, onVer, onEliminar }: {
           {pdt.estado === 'DRAFT' && pdt.dias_para_vencer >= 0 && (
             <span className={pdt.dias_para_vencer <= 5 ? 'text-warning-700 font-semibold' : ''}>
               {pdt.dias_para_vencer === 0 ? 'Vence hoy' :
-               pdt.dias_para_vencer === 1 ? 'Vence manana' :
-               `Faltan ${pdt.dias_para_vencer} dias`}
+                pdt.dias_para_vencer === 1 ? 'Vence manana' :
+                  `Faltan ${pdt.dias_para_vencer} dias`}
             </span>
           )}
           {pdt.nps && <span className="font-mono">NPS {pdt.nps}</span>}

@@ -3,16 +3,24 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, case
 from typing import Optional
 from datetime import date
+from decimal import Decimal
 
 from app.database import get_db
-from app.models.models import Usuario, Empresa, PDT621
+from app.models.models import (
+    Usuario, Empresa, PDT621,
+    PDT621VentaDetalle, PDT621CompraDetalle,
+)
 from app.schemas.pdt621_schema import (
-    PDT621Response, PDT621Generar, PDT621Ajustes, PDT621CambioEstado
+    PDT621Response, PDT621Generar, PDT621Ajustes, PDT621CambioEstado,
+    DetalleVentasResponse, DetalleComprasResponse,
+    VentaDetalleItem, CompraDetalleItem,
+    AplicarSeleccionRequest,
 )
 from app.dependencies.auth_dependency import require_contador
 from app.services.pdt621_service import (
     obtener_o_crear_pdt, importar_desde_sire, aplicar_ajustes,
-    cambiar_estado, recalcular_pdt, obtener_saldo_favor_mes_anterior
+    cambiar_estado, recalcular_pdt, obtener_saldo_favor_mes_anterior,
+    aplicar_seleccion_ventas, aplicar_seleccion_compras,
 )
 from app.services.empresa_service import obtener_credenciales_sunat
 from app.services.sire_client import SireClient, SIREError
@@ -118,7 +126,6 @@ def obtener_pdt_por_periodo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
-    """Obtiene o crea el PDT de un periodo especifico."""
     empresa = get_empresa_or_404(empresa_id, current_user, db)
     if mes < 1 or mes > 12:
         raise HTTPException(status_code=400, detail="Mes invalido")
@@ -159,11 +166,13 @@ def importar_sunat(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
-    """Descarga RVIE/RCE de SUNAT (real o mock) y pre-llena el PDT."""
+    """Descarga RVIE/RCE de SUNAT y persiste los comprobantes en el detalle."""
     pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
     if pdt.estado in ("SUBMITTED", "ACCEPTED"):
-        raise HTTPException(status_code=400,
-            detail=f"No se puede importar: el PDT esta en estado {pdt.estado}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede importar: el PDT esta en estado {pdt.estado}",
+        )
     resumen = importar_desde_sire(db, pdt, empresa)
     return resumen
 
@@ -175,10 +184,6 @@ def probar_conexion_sire(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
-    """
-    Prueba la conexion con SUNAT usando las credenciales de la empresa.
-    Util para validar credenciales antes de hacer descargas.
-    """
     empresa = get_empresa_or_404(empresa_id, current_user, db)
     cred = obtener_credenciales_sunat(empresa)
 
@@ -197,7 +202,6 @@ def probar_conexion_sire(
             usuario=cred.get("usuario", ""),
             clave_sol=cred["clave_sol"],
         )
-        # Intenta autenticar (esto valida credenciales)
         client._autenticar()
         return {
             "conectado": True,
@@ -213,7 +217,7 @@ def probar_conexion_sire(
         }
 
 
-# ── Sugerir saldo a favor mes anterior ─────────────────
+# ── Sugerir saldo a favor ──────────────────────────────
 @router.get("/empresas/{empresa_id}/pdt621/saldo-favor/{ano}/{mes}")
 def sugerir_saldo_favor(
     empresa_id: int, ano: int, mes: int,
@@ -225,29 +229,30 @@ def sugerir_saldo_favor(
     return {
         "saldo_sugerido": float(saldo),
         "editable": True,
-        "fuente": "PDT 621 del mes anterior" if saldo > 0 else "Sin saldo previo",
+        "fuente": "PDT mes anterior" if saldo > 0 else "Sin saldo",
     }
 
 
 # ── Aplicar ajustes ────────────────────────────────────
 @router.put("/pdt621/{pdt_id}/ajustes")
-def aplicar_ajustes_endpoint(
+def aplicar_ajustes_pdt(
     pdt_id: int,
-    payload: PDT621Ajustes,
+    ajustes: PDT621Ajustes,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
     pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
     if pdt.estado in ("SUBMITTED", "ACCEPTED"):
-        raise HTTPException(status_code=400, detail=f"No editable: estado {pdt.estado}")
-    ajustes = payload.model_dump(exclude_none=True)
-    resultado = aplicar_ajustes(db, pdt, empresa, ajustes)
-    return resultado
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede ajustar un PDT en estado {pdt.estado}",
+        )
+    return aplicar_ajustes(db, pdt, empresa, ajustes.model_dump())
 
 
 # ── Recalcular ─────────────────────────────────────────
 @router.post("/pdt621/{pdt_id}/recalcular", response_model=PDT621Response)
-def recalcular_endpoint(
+def recalcular(
     pdt_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
@@ -258,27 +263,111 @@ def recalcular_endpoint(
 
 # ── Cambiar estado ─────────────────────────────────────
 @router.post("/pdt621/{pdt_id}/cambiar-estado", response_model=PDT621Response)
-def cambiar_estado_endpoint(
+def cambiar_estado_pdt(
     pdt_id: int,
     payload: PDT621CambioEstado,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
     pdt, _ = get_pdt_or_404(pdt_id, current_user, db)
-    pdt = cambiar_estado(db, pdt, payload.nuevo_estado, payload.numero_operacion, payload.mensaje)
-    return pdt
+    return cambiar_estado(db, pdt, payload.nuevo_estado, payload.numero_operacion, payload.mensaje)
 
 
-# ── Eliminar borrador ──────────────────────────────────
-@router.delete("/pdt621/{pdt_id}", status_code=204)
-def eliminar_pdt(
+# ════════════════════════════════════════════════════════════
+# DETALLE DE COMPROBANTES (nuevos endpoints)
+# ════════════════════════════════════════════════════════════
+
+def _build_detalle_ventas_response(
+    comprobantes: list, fuente_principal: str
+) -> dict:
+    """Arma el response de detalle de ventas con totales de incluidos."""
+    incluidos = [c for c in comprobantes if c.incluido]
+    return {
+        "total_comprobantes": len(comprobantes),
+        "comprobantes_incluidos": len(incluidos),
+        "subtotal_gravadas_incluidas": sum((c.base_gravada or Decimal("0")) for c in incluidos),
+        "subtotal_no_gravadas_incluidas": sum((c.base_no_gravada or Decimal("0")) for c in incluidos),
+        "subtotal_exportaciones_incluidas": sum((c.exportacion or Decimal("0")) for c in incluidos),
+        "subtotal_igv_incluido": sum((c.igv or Decimal("0")) for c in incluidos),
+        "subtotal_total_incluido": sum((c.total or Decimal("0")) for c in incluidos),
+        "fuente": fuente_principal,
+        "comprobantes": [VentaDetalleItem.model_validate(c) for c in comprobantes],
+    }
+
+
+def _build_detalle_compras_response(
+    comprobantes: list, fuente_principal: str
+) -> dict:
+    incluidos = [c for c in comprobantes if c.incluido]
+    return {
+        "total_comprobantes": len(comprobantes),
+        "comprobantes_incluidos": len(incluidos),
+        "subtotal_gravadas_incluidas": sum((c.base_gravada or Decimal("0")) for c in incluidos),
+        "subtotal_igv_incluido": sum((c.igv or Decimal("0")) for c in incluidos),
+        "subtotal_total_incluido": sum((c.total or Decimal("0")) for c in incluidos),
+        "fuente": fuente_principal,
+        "comprobantes": [CompraDetalleItem.model_validate(c) for c in comprobantes],
+    }
+
+
+@router.get("/pdt621/{pdt_id}/detalle-ventas", response_model=DetalleVentasResponse)
+def listar_detalle_ventas(
     pdt_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
 ):
+    """Lista todos los comprobantes de venta importados para este PDT."""
     pdt, _ = get_pdt_or_404(pdt_id, current_user, db)
-    if pdt.estado != "DRAFT":
-        raise HTTPException(status_code=400,
-            detail=f"Solo se pueden eliminar borradores. Estado actual: {pdt.estado}")
-    db.delete(pdt)
-    db.commit()
+
+    comprobantes = db.query(PDT621VentaDetalle).filter_by(
+        pdt621_id=pdt.id
+    ).order_by(PDT621VentaDetalle.fecha_emision, PDT621VentaDetalle.id).all()
+
+    fuente = comprobantes[0].fuente if comprobantes else "SIN_DATOS"
+    return _build_detalle_ventas_response(comprobantes, fuente)
+
+
+@router.get("/pdt621/{pdt_id}/detalle-compras", response_model=DetalleComprasResponse)
+def listar_detalle_compras(
+    pdt_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """Lista todos los comprobantes de compra importados para este PDT."""
+    pdt, _ = get_pdt_or_404(pdt_id, current_user, db)
+
+    comprobantes = db.query(PDT621CompraDetalle).filter_by(
+        pdt621_id=pdt.id
+    ).order_by(PDT621CompraDetalle.fecha_emision, PDT621CompraDetalle.id).all()
+
+    fuente = comprobantes[0].fuente if comprobantes else "SIN_DATOS"
+    return _build_detalle_compras_response(comprobantes, fuente)
+
+
+@router.post("/pdt621/{pdt_id}/detalle-ventas/aplicar-seleccion", response_model=PDT621Response)
+def aplicar_seleccion_ventas_endpoint(
+    pdt_id: int,
+    payload: AplicarSeleccionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """
+    Aplica la seleccion de comprobantes de venta (incluir/excluir) y recalcula el PDT.
+    Recibe: { selecciones: [{ id, incluido }, ...] }
+    """
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+    selecciones = [s.model_dump() for s in payload.selecciones]
+    return aplicar_seleccion_ventas(db, pdt, empresa, selecciones)
+
+
+@router.post("/pdt621/{pdt_id}/detalle-compras/aplicar-seleccion", response_model=PDT621Response)
+def aplicar_seleccion_compras_endpoint(
+    pdt_id: int,
+    payload: AplicarSeleccionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """Aplica la seleccion de comprobantes de compra y recalcula el PDT."""
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+    selecciones = [s.model_dump() for s in payload.selecciones]
+    return aplicar_seleccion_compras(db, pdt, empresa, selecciones)

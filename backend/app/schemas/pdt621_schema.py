@@ -79,3 +79,80 @@ class PDT621CambioEstado(BaseModel):
 class ImportacionSunatResponse(BaseModel):
     ventas: dict
     compras: dict
+
+
+# ════════════════════════════════════════════════════════════
+# SCHEMAS DE DETALLE DE COMPROBANTES
+# ════════════════════════════════════════════════════════════
+
+class VentaDetalleItem(BaseModel):
+    """Un comprobante de venta en la tabla de detalle."""
+    id: int
+    tipo_comprobante: str
+    serie: str
+    numero: str
+    fecha_emision: date
+    ruc_cliente: Optional[str] = None
+    razon_social_cliente: str
+    base_gravada: Decimal
+    base_no_gravada: Decimal
+    exportacion: Decimal
+    igv: Decimal
+    total: Decimal
+    incluido: bool
+    fuente: str
+    model_config = {"from_attributes": True}
+
+
+class CompraDetalleItem(BaseModel):
+    """Un comprobante de compra en la tabla de detalle."""
+    id: int
+    tipo_comprobante: str
+    serie: str
+    numero: str
+    fecha_emision: date
+    ruc_proveedor: Optional[str] = None
+    razon_social_proveedor: str
+    base_gravada: Decimal
+    base_no_gravada: Decimal
+    igv: Decimal
+    total: Decimal
+    tipo_destino: str
+    incluido: bool
+    fuente: str
+    model_config = {"from_attributes": True}
+
+
+class DetalleVentasResponse(BaseModel):
+    """Respuesta al listar el detalle de ventas de un PDT."""
+    total_comprobantes: int
+    comprobantes_incluidos: int
+    subtotal_gravadas_incluidas: Decimal
+    subtotal_no_gravadas_incluidas: Decimal
+    subtotal_exportaciones_incluidas: Decimal
+    subtotal_igv_incluido: Decimal
+    subtotal_total_incluido: Decimal
+    fuente: str
+    comprobantes: List[VentaDetalleItem]
+
+
+class DetalleComprasResponse(BaseModel):
+    """Respuesta al listar el detalle de compras de un PDT."""
+    total_comprobantes: int
+    comprobantes_incluidos: int
+    subtotal_gravadas_incluidas: Decimal
+    subtotal_igv_incluido: Decimal
+    subtotal_total_incluido: Decimal
+    fuente: str
+    comprobantes: List[CompraDetalleItem]
+
+
+class SeleccionItem(BaseModel):
+    """Entrada para aplicar seleccion: {id, incluido}."""
+    id: int
+    incluido: bool
+
+
+class AplicarSeleccionRequest(BaseModel):
+    """Body del endpoint aplicar-seleccion."""
+    selecciones: List[SeleccionItem]

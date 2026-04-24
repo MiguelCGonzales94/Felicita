@@ -54,13 +54,13 @@ export interface ImportacionSunat {
     ventas_no_gravadas: number
     exportaciones: number
     igv_debito: number
-    comprobantes: any[]
+    comprobantes?: any[]
   }
   compras: {
     total_comprobantes: number
     compras_gravadas: number
     igv_credito: number
-    comprobantes: any[]
+    comprobantes?: any[]
   }
 }
 
@@ -103,15 +103,91 @@ export interface ResultadoCalculo {
   total_a_pagar: number
 }
 
-export const MESES_LABEL = [
-  '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-]
+export const MESES_LABEL: Record<number, string> = {
+  1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+  5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+  9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
 
 export const ESTADO_CONFIG: Record<EstadoPDT, { label: string; color: string; bg: string }> = {
   DRAFT:     { label: 'Borrador',   color: 'text-gray-700',    bg: 'bg-gray-100' },
-  GENERATED: { label: 'Generado',   color: 'text-brand-900',   bg: 'bg-brand-50' },
-  SUBMITTED: { label: 'Presentado', color: 'text-warning-900', bg: 'bg-warning-50' },
-  ACCEPTED:  { label: 'Aceptado',   color: 'text-success-900', bg: 'bg-success-50' },
-  REJECTED:  { label: 'Rechazado',  color: 'text-danger-900',  bg: 'bg-danger-50' },
+  GENERATED: { label: 'Generada',   color: 'text-brand-900',   bg: 'bg-brand-50' },
+  SUBMITTED: { label: 'Presentada', color: 'text-warning-900', bg: 'bg-warning-50' },
+  ACCEPTED:  { label: 'Aceptada',   color: 'text-success-900', bg: 'bg-success-50' },
+  REJECTED:  { label: 'Rechazada',  color: 'text-danger-900',  bg: 'bg-danger-50' },
+}
+
+
+// ════════════════════════════════════════════════════════════
+// DETALLE DE COMPROBANTES
+// ════════════════════════════════════════════════════════════
+
+export interface VentaDetalleItem {
+  id: number
+  tipo_comprobante: string
+  serie: string
+  numero: string
+  fecha_emision: string
+  ruc_cliente: string | null
+  razon_social_cliente: string
+  base_gravada: number
+  base_no_gravada: number
+  exportacion: number
+  igv: number
+  total: number
+  incluido: boolean
+  fuente: string
+}
+
+export interface CompraDetalleItem {
+  id: number
+  tipo_comprobante: string
+  serie: string
+  numero: string
+  fecha_emision: string
+  ruc_proveedor: string | null
+  razon_social_proveedor: string
+  base_gravada: number
+  base_no_gravada: number
+  igv: number
+  total: number
+  tipo_destino: string
+  incluido: boolean
+  fuente: string
+}
+
+export interface DetalleVentasResponse {
+  total_comprobantes: number
+  comprobantes_incluidos: number
+  subtotal_gravadas_incluidas: number
+  subtotal_no_gravadas_incluidas: number
+  subtotal_exportaciones_incluidas: number
+  subtotal_igv_incluido: number
+  subtotal_total_incluido: number
+  fuente: string
+  comprobantes: VentaDetalleItem[]
+}
+
+export interface DetalleComprasResponse {
+  total_comprobantes: number
+  comprobantes_incluidos: number
+  subtotal_gravadas_incluidas: number
+  subtotal_igv_incluido: number
+  subtotal_total_incluido: number
+  fuente: string
+  comprobantes: CompraDetalleItem[]
+}
+
+export interface SeleccionItem {
+  id: number
+  incluido: boolean
+}
+
+// Etiqueta amigable para tipo de comprobante
+export const TIPO_COMPROBANTE_LABEL: Record<string, string> = {
+  '01': 'Factura',
+  '03': 'Boleta',
+  '07': 'Nota de credito',
+  '08': 'Nota de debito',
+  '12': 'Ticket',
 }
