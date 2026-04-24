@@ -1,0 +1,660 @@
+import { useEffect, useState, useMemo } from 'react'
+import { useParams, useOutletContext, useNavigate } from 'react-router-dom'
+import {
+  ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle,
+  Save, Send, XCircle, RefreshCw, Info, Database, Cloud,
+  TrendingUp, TrendingDown, FileText, Settings
+} from 'lucide-react'
+import PageHeader from '../../components/PageHeader'
+import Modal from '../../components/Modal'
+import { pdt621Service, formatoSoles } from '../../services/pdt621Service'
+import { useDebounce } from '../../hooks/useDebounce'
+import {
+  MESES_LABEL, ESTADO_CONFIG
+} from '../../types/pdt621'
+import type {
+  PDT621, ImportacionSunat, Ajustes, ResultadoCalculo
+} from '../../types/pdt621'
+import type { EmpresaDetalle } from '../../types/empresa'
+import { REGIMENES_LABEL } from '../../types/empresa'
+
+interface Ctx { empresa: EmpresaDetalle }
+
+export default function DeclaracionEditor() {
+  const { pdtId } = useParams<{ pdtId: string }>()
+  const { empresa } = useOutletContext<Ctx>()
+  const navigate = useNavigate()
+
+  const [pdt, setPdt] = useState<PDT621 | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [importacion, setImportacion] = useState<ImportacionSunat | null>(null)
+
+  const [ajustes, setAjustes] = useState<Ajustes>({
+    saldo_favor_anterior: 0,
+    percepciones_periodo: 0,
+    retenciones_periodo: 0,
+    pagos_anticipados: 0,
+    retenciones_renta: 0,
+  })
+
+  const [calculo, setCalculo] = useState<ResultadoCalculo | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null)
+  const [modalPresentar, setModalPresentar] = useState(false)
+  const [modalResultado, setModalResultado] = useState(false)
+  const [numOperacion, setNumOperacion] = useState('')
+
+  const ajustesDebounced = useDebounce(ajustes, 600)
+
+  useEffect(() => {
+    if (pdtId) cargar(Number(pdtId))
+  }, [pdtId])
+
+  useEffect(() => {
+    if (pdt && !loading) {
+      recalcularVivo()
+    }
+  }, [ajustesDebounced, pdt])
+
+  async function cargar(id: number) {
+    setLoading(true)
+    try {
+      const data = await pdt621Service.obtener(id)
+      setPdt(data)
+
+      // Sugerir saldo a favor del mes anterior
+      const saldo = await pdt621Service.sugerirSaldoFavor(empresa.id, data.ano, data.mes)
+      if (saldo.saldo_sugerido > 0) {
+        setAjustes(a => ({ ...a, saldo_favor_anterior: saldo.saldo_sugerido }))
+      }
+    } finally { setLoading(false) }
+  }
+
+  async function recalcularVivo() {
+    if (!pdt) return
+    try {
+      const res = await pdt621Service.aplicarAjustes(pdt.id, ajustesDebounced)
+      setCalculo(res)
+    } catch (err) { console.error(err) }
+  }
+
+  async function handleImportarSunat() {
+    if (!pdt) return
+    setImportando(true)
+    setMensaje(null)
+    try {
+      const res = await pdt621Service.importarSunat(pdt.id)
+      setImportacion(res)
+      await cargar(pdt.id)
+      setMensaje({
+        tipo: 'success',
+        texto: res.fuente === 'SUNAT_SIRE'
+          ? 'Datos descargados exitosamente desde SUNAT SIRE'
+          : 'Datos importados (modo simulado - configura credenciales API SUNAT para descarga real)',
+      })
+    } catch (err: any) {
+      setMensaje({
+        tipo: 'error',
+        texto: err.response?.data?.detail || 'Error al importar desde SUNAT',
+      })
+    } finally { setImportando(false) }
+  }
+
+  async function handleGuardarBorrador() {
+    if (!pdt) return
+    setGuardando(true)
+    try {
+      await pdt621Service.aplicarAjustes(pdt.id, ajustes)
+      setMensaje({ tipo: 'success', texto: 'Borrador guardado' })
+      setTimeout(() => setMensaje(null), 2500)
+    } finally { setGuardando(false) }
+  }
+
+  async function handleGenerar() {
+    if (!pdt) return
+    setGuardando(true)
+    try {
+      await pdt621Service.aplicarAjustes(pdt.id, ajustes)
+      const actualizado = await pdt621Service.cambiarEstado(pdt.id, 'GENERATED')
+      setPdt(actualizado)
+      setMensaje({ tipo: 'success', texto: 'Declaracion generada correctamente' })
+    } catch (err: any) {
+      setMensaje({ tipo: 'error', texto: err.response?.data?.detail || 'Error al generar' })
+    } finally { setGuardando(false) }
+  }
+
+  async function handlePresentar() {
+    if (!pdt) return
+    setGuardando(true)
+    try {
+      const actualizado = await pdt621Service.cambiarEstado(
+        pdt.id, 'SUBMITTED', numOperacion || undefined
+      )
+      setPdt(actualizado)
+      setModalPresentar(false)
+      setMensaje({ tipo: 'success', texto: 'Declaracion marcada como presentada' })
+    } finally { setGuardando(false) }
+  }
+
+  async function handleResultado(resultado: 'ACCEPTED' | 'REJECTED', mensajeErr?: string) {
+    if (!pdt) return
+    setGuardando(true)
+    try {
+      const actualizado = await pdt621Service.cambiarEstado(
+        pdt.id, resultado, undefined, mensajeErr
+      )
+      setPdt(actualizado)
+      setModalResultado(false)
+      setMensaje({
+        tipo: resultado === 'ACCEPTED' ? 'success' : 'error',
+        texto: resultado === 'ACCEPTED'
+          ? 'Declaracion aceptada por SUNAT'
+          : 'Declaracion rechazada',
+      })
+    } finally { setGuardando(false) }
+  }
+
+  if (loading || !pdt) {
+    return (
+      <div className="p-8 flex items-center justify-center text-gray-400">
+        <Loader2 size={16} className="animate-spin mr-2" /> Cargando declaracion...
+      </div>
+    )
+  }
+
+  const estadoCfg = ESTADO_CONFIG[pdt.estado]
+  const esEditable = pdt.estado === 'DRAFT' || pdt.estado === 'REJECTED'
+  const tieneDatos = Number(pdt.c100_ventas_gravadas) > 0 || Number(pdt.c120_compras_gravadas) > 0
+
+  // Calculos en vivo (si hay) o del PDT guardado
+  const totales = calculo || {
+    igv: {
+      igv_debito: Number(pdt.c140igv_igv_debito),
+      igv_credito: Number(pdt.c180_igv_credito),
+      igv_resultante: Number(pdt.c140igv_igv_debito) - Number(pdt.c180_igv_credito),
+      total_creditos_aplicables: 0,
+      igv_a_pagar: Number(pdt.c184_igv_a_pagar),
+      saldo_favor_siguiente: 0,
+      percepciones_aplicadas: 0,
+      retenciones_aplicadas: 0,
+      saldo_favor_aplicado: 0,
+      subtotal_ventas: 0,
+      subtotal_compras: 0,
+    },
+    renta: {
+      regimen: empresa.regimen_tributario,
+      tasa_aplicada: 0.015,
+      base_calculo: Number(pdt.c301_ingresos_netos),
+      renta_bruta: Number(pdt.c309_pago_a_cuenta_renta),
+      creditos_aplicados: 0,
+      renta_a_pagar: Number(pdt.c318_renta_a_pagar),
+      observaciones: '',
+    },
+    total_a_pagar: Number(pdt.total_a_pagar),
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={`${empresa.razon_social} - PDT 621`}
+        title={`${MESES_LABEL[pdt.mes]} ${pdt.ano}`}
+        description={`Declaracion mensual IGV y Renta - ${REGIMENES_LABEL[empresa.regimen_tributario]}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/empresas/${empresa.id}/declaraciones`)}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <ArrowLeft size={14} /> Volver
+            </button>
+            <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${estadoCfg.bg} ${estadoCfg.color}`}>
+              {estadoCfg.label}
+            </span>
+          </div>
+        }
+      />
+
+      <div className="p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* Columna principal */}
+        <div className="lg:col-span-2 space-y-4">
+
+          {/* Mensaje */}
+          {mensaje && (
+            <div className={`rounded-lg p-3 flex items-start gap-2 text-sm ${
+              mensaje.tipo === 'success'
+                ? 'bg-success-50 border border-success-600/20 text-success-900'
+                : 'bg-danger-50 border border-danger-600/20 text-danger-900'
+            }`}>
+              {mensaje.tipo === 'success'
+                ? <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+                : <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
+              <span>{mensaje.texto}</span>
+            </div>
+          )}
+
+          {/* Datos SUNAT */}
+          <div className="card">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database size={16} className="text-brand-800" />
+                <h2 className="font-heading font-bold text-gray-900">Datos desde SUNAT</h2>
+                {importacion && (
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                    importacion.fuente === 'SUNAT_SIRE'
+                      ? 'bg-success-50 text-success-900'
+                      : 'bg-warning-50 text-warning-900'
+                  }`}>
+                    {importacion.fuente === 'SUNAT_SIRE'
+                      ? <><Cloud size={10} /> SUNAT SIRE real</>
+                      : <><Database size={10} /> Datos simulados</>}
+                  </span>
+                )}
+              </div>
+              {esEditable && (
+                <button
+                  onClick={handleImportarSunat}
+                  disabled={importando}
+                  className="btn-primary flex items-center gap-2 text-xs"
+                >
+                  {importando
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Download size={12} />}
+                  {tieneDatos ? 'Volver a descargar' : 'Descargar de SUNAT'}
+                </button>
+              )}
+            </div>
+
+            {!tieneDatos ? (
+              <div className="p-8 text-center">
+                <Cloud size={32} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-600 mb-1">No hay datos importados</p>
+                <p className="text-xs text-gray-400">
+                  Click en <strong>"Descargar de SUNAT"</strong> para obtener las ventas y compras del periodo
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 divide-x divide-gray-100">
+                <div className="p-5">
+                  <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold mb-3">
+                    <TrendingUp size={12} className="text-success-600" /> Ventas (RVIE)
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c100_ventas_gravadas))} />
+                    <DataRow label="No gravadas" value={formatoSoles(Number(pdt.c104_ventas_no_gravadas))} />
+                    <DataRow label="Exportaciones" value={formatoSoles(Number(pdt.c105_exportaciones))} />
+                    <div className="pt-2 mt-2 border-t border-gray-100">
+                      <DataRow label="IGV debito" value={formatoSoles(Number(pdt.c140igv_igv_debito))} destacado />
+                    </div>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold mb-3">
+                    <TrendingDown size={12} className="text-brand-600" /> Compras (RCE)
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c120_compras_gravadas))} />
+                    <div className="pt-2 mt-2 border-t border-gray-100">
+                      <DataRow label="IGV credito" value={formatoSoles(Number(pdt.c180_igv_credito))} destacado />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Ajustes */}
+          {tieneDatos && (
+            <div className="card">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+                <Settings size={16} className="text-brand-800" />
+                <h2 className="font-heading font-bold text-gray-900">Ajustes del contador</h2>
+              </div>
+
+              <div className="p-5 space-y-5">
+                {/* IGV */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    Creditos IGV
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <NumericField
+                      label="Saldo a favor mes anterior"
+                      value={ajustes.saldo_favor_anterior || 0}
+                      onChange={v => setAjustes(a => ({ ...a, saldo_favor_anterior: v }))}
+                      disabled={!esEditable}
+                      hint="Sugerido del PDT anterior"
+                    />
+                    <NumericField
+                      label="Percepciones del periodo"
+                      value={ajustes.percepciones_periodo || 0}
+                      onChange={v => setAjustes(a => ({ ...a, percepciones_periodo: v }))}
+                      disabled={!esEditable}
+                    />
+                    <NumericField
+                      label="Retenciones del periodo"
+                      value={ajustes.retenciones_periodo || 0}
+                      onChange={v => setAjustes(a => ({ ...a, retenciones_periodo: v }))}
+                      disabled={!esEditable}
+                    />
+                  </div>
+                </div>
+
+                {/* Renta */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    Creditos Renta
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <NumericField
+                      label="Pagos anticipados"
+                      value={ajustes.pagos_anticipados || 0}
+                      onChange={v => setAjustes(a => ({ ...a, pagos_anticipados: v }))}
+                      disabled={!esEditable}
+                    />
+                    <NumericField
+                      label="Retenciones renta"
+                      value={ajustes.retenciones_renta || 0}
+                      onChange={v => setAjustes(a => ({ ...a, retenciones_renta: v }))}
+                      disabled={!esEditable}
+                    />
+                  </div>
+                </div>
+
+                {/* NRUS categoria */}
+                {empresa.regimen_tributario === 'NRUS' && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                      NRUS
+                    </h3>
+                    <div>
+                      <label className="label">Categoria NRUS</label>
+                      <select
+                        value={ajustes.categoria_nrus || 1}
+                        onChange={e => setAjustes(a => ({ ...a, categoria_nrus: Number(e.target.value) }))}
+                        className="input max-w-xs"
+                        disabled={!esEditable}
+                      >
+                        <option value={1}>Categoria 1 - Hasta S/ 5,000 / mes (cuota S/ 20)</option>
+                        <option value={2}>Categoria 2 - Hasta S/ 8,000 / mes (cuota S/ 50)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar: calculo vivo */}
+        <div className="space-y-4">
+          <div className="card sticky top-4">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-heading font-bold text-gray-900 flex items-center gap-2">
+                <RefreshCw size={14} className="text-brand-800" />
+                Calculo en vivo
+              </h2>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* IGV */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">IGV</p>
+                <div className="space-y-1 text-sm">
+                  <DataRow label="Debito" value={formatoSoles(totales.igv.igv_debito)} />
+                  <DataRow label="- Credito" value={formatoSoles(totales.igv.igv_credito)} />
+                  <div className="pt-1 mt-1 border-t border-dashed border-gray-200">
+                    <DataRow label="Sub-total" value={formatoSoles(totales.igv.igv_resultante)} />
+                  </div>
+                  {totales.igv.saldo_favor_aplicado > 0 && (
+                    <DataRow label="- Saldo aplicado" value={formatoSoles(totales.igv.saldo_favor_aplicado)} chico />
+                  )}
+                  {totales.igv.percepciones_aplicadas > 0 && (
+                    <DataRow label="- Percepciones" value={formatoSoles(totales.igv.percepciones_aplicadas)} chico />
+                  )}
+                  {totales.igv.retenciones_aplicadas > 0 && (
+                    <DataRow label="- Retenciones" value={formatoSoles(totales.igv.retenciones_aplicadas)} chico />
+                  )}
+                  <div className={`pt-2 mt-2 border-t border-gray-200 p-2 rounded ${
+                    totales.igv.igv_a_pagar > 0 ? 'bg-brand-50' : 'bg-success-50'
+                  }`}>
+                    <DataRow
+                      label="IGV a pagar"
+                      value={formatoSoles(totales.igv.igv_a_pagar)}
+                      destacado
+                    />
+                  </div>
+                  {totales.igv.saldo_favor_siguiente > 0 && (
+                    <div className="bg-success-50 p-2 rounded text-xs text-success-900 flex items-start gap-1.5">
+                      <Info size={12} className="flex-shrink-0 mt-0.5" />
+                      <span>Saldo a favor prox mes: <strong>{formatoSoles(totales.igv.saldo_favor_siguiente)}</strong></span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Renta */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Renta ({totales.renta.regimen})
+                </p>
+                <div className="space-y-1 text-sm">
+                  <DataRow label="Base" value={formatoSoles(totales.renta.base_calculo)} />
+                  <DataRow
+                    label={`Tasa ${(totales.renta.tasa_aplicada * 100).toFixed(2)}%`}
+                    value={formatoSoles(totales.renta.renta_bruta)}
+                  />
+                  {totales.renta.creditos_aplicados > 0 && (
+                    <DataRow label="- Creditos" value={formatoSoles(totales.renta.creditos_aplicados)} chico />
+                  )}
+                  <div className="pt-2 mt-2 border-t border-gray-200 bg-brand-50 p-2 rounded">
+                    <DataRow
+                      label="Renta a pagar"
+                      value={formatoSoles(totales.renta.renta_a_pagar)}
+                      destacado
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Total */}
+              <div className="bg-sidebar rounded-lg p-4 text-white">
+                <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                  Total a pagar
+                </p>
+                <p className="text-2xl font-heading font-bold font-mono">
+                  {formatoSoles(totales.total_a_pagar)}
+                </p>
+              </div>
+
+              {/* Acciones segun estado */}
+              {esEditable && (
+                <div className="space-y-2 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={handleGuardarBorrador}
+                    disabled={guardando}
+                    className="btn-secondary w-full flex items-center justify-center gap-2 text-sm"
+                  >
+                    {guardando
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Save size={14} />}
+                    Guardar borrador
+                  </button>
+                  <button
+                    onClick={handleGenerar}
+                    disabled={guardando || !tieneDatos}
+                    className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
+                  >
+                    <FileText size={14} />
+                    Generar declaracion
+                  </button>
+                </div>
+              )}
+
+              {pdt.estado === 'GENERATED' && (
+                <div className="space-y-2 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setModalPresentar(true)}
+                    className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Send size={14} />
+                    Marcar como presentada
+                  </button>
+                </div>
+              )}
+
+              {pdt.estado === 'SUBMITTED' && (
+                <div className="space-y-2 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setModalResultado(true)}
+                    className="btn-secondary w-full flex items-center justify-center gap-2 text-sm"
+                  >
+                    Registrar resultado SUNAT
+                  </button>
+                </div>
+              )}
+
+              {pdt.estado === 'ACCEPTED' && (
+                <div className="bg-success-50 border border-success-600/20 rounded-lg p-3 text-xs text-success-900 flex items-start gap-2">
+                  <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Declaracion aceptada</p>
+                    {pdt.numero_operacion && (
+                      <p className="font-mono mt-1">Op. {pdt.numero_operacion}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {pdt.estado === 'REJECTED' && pdt.mensaje_error_sunat && (
+                <div className="bg-danger-50 border border-danger-600/20 rounded-lg p-3 text-xs text-danger-900 flex items-start gap-2">
+                  <XCircle size={14} className="flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold mb-1">Rechazada por SUNAT</p>
+                    <p>{pdt.mensaje_error_sunat}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal presentar */}
+      <Modal
+        isOpen={modalPresentar}
+        onClose={() => !guardando && setModalPresentar(false)}
+        title="Marcar como presentada"
+        description="Registra el numero de operacion que SUNAT te devuelva"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setModalPresentar(false)} className="btn-secondary" disabled={guardando}>
+              Cancelar
+            </button>
+            <button onClick={handlePresentar} className="btn-primary flex items-center gap-2" disabled={guardando}>
+              {guardando && <Loader2 size={14} className="animate-spin" />}
+              Marcar presentada
+            </button>
+          </>
+        }
+      >
+        <div>
+          <label className="label">Numero de operacion (opcional)</label>
+          <input
+            type="text"
+            value={numOperacion}
+            onChange={e => setNumOperacion(e.target.value)}
+            className="input font-mono"
+            placeholder="Ej: 123456789"
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            Podras ingresarlo despues si aun no lo tienes
+          </p>
+        </div>
+      </Modal>
+
+      {/* Modal resultado */}
+      <Modal
+        isOpen={modalResultado}
+        onClose={() => !guardando && setModalResultado(false)}
+        title="Resultado de SUNAT"
+        description="Que devolvio SUNAT sobre esta declaracion?"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <button
+            onClick={() => handleResultado('ACCEPTED')}
+            disabled={guardando}
+            className="w-full p-4 bg-success-50 hover:bg-success-100 border border-success-600/30 rounded-lg flex items-center gap-3 transition-colors"
+          >
+            <CheckCircle2 size={20} className="text-success-600" />
+            <div className="text-left">
+              <p className="font-semibold text-success-900 text-sm">Aceptada</p>
+              <p className="text-xs text-success-700">SUNAT acepto la declaracion correctamente</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => {
+              const msg = prompt('Mensaje de rechazo (opcional):')
+              handleResultado('REJECTED', msg || undefined)
+            }}
+            disabled={guardando}
+            className="w-full p-4 bg-danger-50 hover:bg-danger-100 border border-danger-600/30 rounded-lg flex items-center gap-3 transition-colors"
+          >
+            <XCircle size={20} className="text-danger-600" />
+            <div className="text-left">
+              <p className="font-semibold text-danger-900 text-sm">Rechazada</p>
+              <p className="text-xs text-danger-700">SUNAT rechazo la declaracion</p>
+            </div>
+          </button>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+// ── Helpers ─────────────────────────────────────────
+function DataRow({ label, value, destacado, chico }: {
+  label: string
+  value: string
+  destacado?: boolean
+  chico?: boolean
+}) {
+  return (
+    <div className={`flex items-center justify-between ${chico ? 'text-xs text-gray-500' : ''}`}>
+      <span className={destacado ? 'font-semibold' : chico ? '' : 'text-gray-600'}>{label}</span>
+      <span className={`font-mono ${destacado ? 'font-bold' : ''}`}>{value}</span>
+    </div>
+  )
+}
+
+function NumericField({ label, value, onChange, disabled, hint }: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  disabled?: boolean
+  hint?: string
+}) {
+  return (
+    <div>
+      <label className="label text-xs">{label}</label>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">S/</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={value || ''}
+          onChange={e => onChange(Number(e.target.value) || 0)}
+          disabled={disabled}
+          className="input pl-8 font-mono text-right"
+          placeholder="0.00"
+        />
+      </div>
+      {hint && <p className="text-[10px] text-gray-400 mt-1">{hint}</p>}
+    </div>
+  )
+}
