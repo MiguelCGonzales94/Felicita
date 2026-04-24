@@ -1,7 +1,12 @@
+from decimal import Decimal
+
 from sqlalchemy import (
     Column, Integer, String, Boolean, Numeric, Date, DateTime,
     Text, ForeignKey, UniqueConstraint, CheckConstraint, Index
 )
+
+from sqlalchemy.dialects.postgresql import JSONB
+
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -100,7 +105,8 @@ class Empresa(Base):
         Index("idx_empresas_alerta", "nivel_alerta"),
         Index("idx_empresas_activa", "activa"),
     )
-
+    # Configuracion tributaria (una por empresa)
+    configuracion_tributaria = relationship("ConfiguracionTributariaEmpresa", back_populates="empresa", uselist=False, cascade="all, delete-orphan")
 
 class PDT621(Base):
     __tablename__ = "pdt621s"
@@ -145,6 +151,9 @@ class PDT621(Base):
         Index("idx_pdt621_estado", "estado"),
         Index("idx_pdt621_vencimiento", "fecha_vencimiento"),
     )
+
+    # Snapshot de la configuracion tributaria vigente al crear el PDT
+    config_snapshot = Column(JSONB, nullable=True)
 
     # Relaciones con el detalle de comprobantes
     ventas_detalle = relationship("PDT621VentaDetalle", back_populates="pdt621", cascade="all, delete-orphan")
@@ -400,3 +409,54 @@ class PDT621CompraDetalle(Base):
 
     # Relacion
     pdt621 = relationship("PDT621", back_populates="compras_detalle")
+
+
+# ════════════════════════════════════════════════════════════
+# CONFIGURACION TRIBUTARIA POR EMPRESA
+# Valores legales (UIT, tasas) + seleccion de campos SIRE
+# ════════════════════════════════════════════════════════════
+
+class ConfiguracionTributariaEmpresa(Base):
+    __tablename__ = "configuracion_tributaria_empresa"
+
+    id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="CASCADE"),
+                        nullable=False, unique=True, index=True)
+
+    # ── Valores legales SUNAT ──
+    # UIT vigente (S/ 5,350 en 2026 por defecto)
+    uit = Column(Numeric(10, 2), default=Decimal("5350.00"), nullable=False)
+
+    # Tasa IGV (18% por defecto)
+    tasa_igv = Column(Numeric(5, 4), default=Decimal("0.1800"), nullable=False)
+
+    # Regimen General
+    rg_coef_minimo = Column(Numeric(5, 4), default=Decimal("0.0150"), nullable=False)
+    rg_renta_anual = Column(Numeric(5, 4), default=Decimal("0.2950"), nullable=False)
+
+    # Regimen MYPE Tributario
+    rmt_tramo1_tasa = Column(Numeric(5, 4), default=Decimal("0.0100"), nullable=False)
+    rmt_tramo1_limite_uit = Column(Numeric(8, 2), default=Decimal("300.00"), nullable=False)
+    rmt_tramo2_coef_minimo = Column(Numeric(5, 4), default=Decimal("0.0150"), nullable=False)
+    rmt_renta_anual_hasta15uit = Column(Numeric(5, 4), default=Decimal("0.1000"), nullable=False)
+    rmt_renta_anual_resto = Column(Numeric(5, 4), default=Decimal("0.2950"), nullable=False)
+
+    # Regimen Especial de Renta
+    rer_tasa = Column(Numeric(5, 4), default=Decimal("0.0150"), nullable=False)
+
+    # Nuevo RUS (cuotas fijas)
+    nrus_cat1 = Column(Numeric(8, 2), default=Decimal("20.00"), nullable=False)
+    nrus_cat2 = Column(Numeric(8, 2), default=Decimal("50.00"), nullable=False)
+
+    # ── Seleccion de campos SIRE ──
+    # JSONB con estructura: {"campo_1": true, "campo_2": true, "campo_33": false, ...}
+    campos_rvie = Column(JSONB, nullable=True)
+    campos_rce = Column(JSONB, nullable=True)
+
+    # ── Auditoria ──
+    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    fecha_modificacion = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    modificado_por_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
+    # Relacion
+    empresa = relationship("Empresa", back_populates="configuracion_tributaria")

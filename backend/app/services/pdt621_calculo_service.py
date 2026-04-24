@@ -1,26 +1,54 @@
 """
 Motor de calculos del PDT 621.
 Soporta los 4 regimenes: RG, RMT, RER, NRUS.
+
+Ahora acepta un parametro opcional 'config' con valores personalizados por empresa
+(UIT, tasas). Si no se pasa, usa los defaults legales SUNAT.
+
+Los PDTs existentes guardan un snapshot de su config al crearse y lo usan para
+recalcular, asi los cambios futuros en la configuracion no afectan PDTs viejos.
 """
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel
 
 
-# Constantes tributarias
-TASA_IGV = Decimal("0.18")
-TASA_RG = Decimal("0.015")
-TASA_RMT_BAJA = Decimal("0.01")
-TASA_RMT_ALTA = Decimal("0.015")
-TASA_RER = Decimal("0.015")
-UIT_2025 = Decimal("5350")
-UIT_2026 = Decimal("5350")
+# ════════════════════════════════════════════════════════════
+# CONSTANTES LEGALES POR DEFECTO (fallback si no hay config)
+# ════════════════════════════════════════════════════════════
 
-CATEGORIAS_NRUS = {
-    1: Decimal("20"),
-    2: Decimal("50"),
+DEFAULT_CONFIG = {
+    "uit":                          Decimal("5350.00"),
+    "tasa_igv":                     Decimal("0.1800"),
+    "rg_coef_minimo":               Decimal("0.0150"),
+    "rg_renta_anual":               Decimal("0.2950"),
+    "rmt_tramo1_tasa":              Decimal("0.0100"),
+    "rmt_tramo1_limite_uit":        Decimal("300.00"),
+    "rmt_tramo2_coef_minimo":       Decimal("0.0150"),
+    "rmt_renta_anual_hasta15uit":   Decimal("0.1000"),
+    "rmt_renta_anual_resto":        Decimal("0.2950"),
+    "rer_tasa":                     Decimal("0.0150"),
+    "nrus_cat1":                    Decimal("20.00"),
+    "nrus_cat2":                    Decimal("50.00"),
 }
 
+
+def _merge_config(config: Optional[Dict]) -> Dict[str, Decimal]:
+    """Mezcla config del usuario con defaults. Todas las salidas son Decimal."""
+    if not config:
+        return dict(DEFAULT_CONFIG)
+    merged = {}
+    for k, v in DEFAULT_CONFIG.items():
+        if k in config and config[k] is not None:
+            merged[k] = Decimal(str(config[k]))
+        else:
+            merged[k] = v
+    return merged
+
+
+# ════════════════════════════════════════════════════════════
+# MODELOS DE DATOS
+# ════════════════════════════════════════════════════════════
 
 class InputsCalculoIGV(BaseModel):
     ventas_gravadas: Decimal = Decimal("0")
@@ -76,15 +104,24 @@ class ResultadoPDT621(BaseModel):
     total_a_pagar: Decimal
 
 
-def calcular_igv(inputs: InputsCalculoIGV) -> ResultadoCalculoIGV:
-    """Motor de calculo del IGV segun Ley del IGV (Peru)."""
+# ════════════════════════════════════════════════════════════
+# MOTOR IGV
+# ════════════════════════════════════════════════════════════
+
+def calcular_igv(
+    inputs: InputsCalculoIGV, config: Optional[Dict] = None
+) -> ResultadoCalculoIGV:
+    """Motor de calculo del IGV. Usa tasa_igv de la config o 18% por defecto."""
+    cfg = _merge_config(config)
+    tasa_igv = cfg["tasa_igv"]
+
     subtotal_ventas = (
         inputs.ventas_gravadas + inputs.ventas_no_gravadas + inputs.exportaciones
     )
     subtotal_compras = inputs.compras_gravadas + inputs.compras_no_gravadas
 
-    igv_debito = (inputs.ventas_gravadas * TASA_IGV).quantize(Decimal("0.01"))
-    igv_credito = (inputs.compras_gravadas * TASA_IGV).quantize(Decimal("0.01"))
+    igv_debito = (inputs.ventas_gravadas * tasa_igv).quantize(Decimal("0.01"))
+    igv_credito = (inputs.compras_gravadas * tasa_igv).quantize(Decimal("0.01"))
     igv_resultante = igv_debito - igv_credito
 
     percepciones_total = inputs.percepciones_periodo + inputs.percepciones_arrastre
@@ -124,8 +161,15 @@ def calcular_igv(inputs: InputsCalculoIGV) -> ResultadoCalculoIGV:
     )
 
 
-def calcular_renta_rg(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
-    tasa = inputs.coeficiente_declarado if inputs.coeficiente_declarado else TASA_RG
+# ════════════════════════════════════════════════════════════
+# MOTOR RENTA (4 regimenes)
+# ════════════════════════════════════════════════════════════
+
+def calcular_renta_rg(
+    inputs: InputsCalculoRenta, config: Optional[Dict] = None
+) -> ResultadoCalculoRenta:
+    cfg = _merge_config(config)
+    tasa = inputs.coeficiente_declarado if inputs.coeficiente_declarado else cfg["rg_coef_minimo"]
     base = inputs.ingresos_netos
     renta_bruta = (base * tasa).quantize(Decimal("0.01"))
     creditos = (
@@ -137,6 +181,8 @@ def calcular_renta_rg(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
     obs = ""
     if inputs.coeficiente_declarado:
         obs = f"Usando coeficiente declarado de {(tasa * 100):.4f}%"
+    else:
+        obs = f"Usando coeficiente minimo de {(tasa * 100):.2f}% (RG)"
     return ResultadoCalculoRenta(
         regimen="RG",
         tasa_aplicada=tasa,
@@ -148,17 +194,29 @@ def calcular_renta_rg(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
     )
 
 
-def calcular_renta_rmt(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
-    limite = Decimal("300") * UIT_2026
+def calcular_renta_rmt(
+    inputs: InputsCalculoRenta, config: Optional[Dict] = None
+) -> ResultadoCalculoRenta:
+    cfg = _merge_config(config)
+    limite = cfg["rmt_tramo1_limite_uit"] * cfg["uit"]
+
     if inputs.ingresos_acumulados_ano <= limite:
-        tasa = TASA_RMT_BAJA
-        obs = f"Ingresos acumulados ({inputs.ingresos_acumulados_ano:,.2f}) dentro de 300 UIT -> 1%"
+        tasa = cfg["rmt_tramo1_tasa"]
+        obs = (
+            f"Ingresos acumulados ({inputs.ingresos_acumulados_ano:,.2f}) dentro de "
+            f"{cfg['rmt_tramo1_limite_uit']} UIT -> {(tasa * 100):.2f}%"
+        )
     else:
-        tasa = TASA_RMT_ALTA
-        obs = f"Ingresos acumulados ({inputs.ingresos_acumulados_ano:,.2f}) superan 300 UIT -> 1.5%"
+        tasa = cfg["rmt_tramo2_coef_minimo"]
+        obs = (
+            f"Ingresos acumulados ({inputs.ingresos_acumulados_ano:,.2f}) superan "
+            f"{cfg['rmt_tramo1_limite_uit']} UIT -> {(tasa * 100):.2f}%"
+        )
+
     if inputs.coeficiente_declarado:
         tasa = inputs.coeficiente_declarado
         obs = f"Usando coeficiente declarado de {(tasa * 100):.4f}%"
+
     renta_bruta = (inputs.ingresos_netos * tasa).quantize(Decimal("0.01"))
     creditos = (
         inputs.pagos_anticipados
@@ -177,8 +235,11 @@ def calcular_renta_rmt(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
     )
 
 
-def calcular_renta_rer(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
-    tasa = TASA_RER
+def calcular_renta_rer(
+    inputs: InputsCalculoRenta, config: Optional[Dict] = None
+) -> ResultadoCalculoRenta:
+    cfg = _merge_config(config)
+    tasa = cfg["rer_tasa"]
     renta_bruta = (inputs.ingresos_netos * tasa).quantize(Decimal("0.01"))
     creditos = inputs.pagos_anticipados + inputs.retenciones_renta
     renta_a_pagar = max(Decimal("0"), renta_bruta - creditos)
@@ -189,15 +250,20 @@ def calcular_renta_rer(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
         renta_bruta=renta_bruta,
         creditos_aplicados=creditos.quantize(Decimal("0.01")),
         renta_a_pagar=renta_a_pagar.quantize(Decimal("0.01")),
-        observaciones="Tasa unica RER 1.5% de ingresos netos mensuales",
+        observaciones=f"Tasa unica RER {(tasa * 100):.2f}% de ingresos netos mensuales",
     )
 
 
-def calcular_renta_nrus(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
+def calcular_renta_nrus(
+    inputs: InputsCalculoRenta, config: Optional[Dict] = None
+) -> ResultadoCalculoRenta:
+    cfg = _merge_config(config)
     categoria = inputs.categoria_nrus or 1
-    if categoria not in CATEGORIAS_NRUS:
+    if categoria == 2:
+        monto_fijo = cfg["nrus_cat2"]
+    else:
         categoria = 1
-    monto_fijo = CATEGORIAS_NRUS[categoria]
+        monto_fijo = cfg["nrus_cat1"]
     return ResultadoCalculoRenta(
         regimen="NRUS",
         tasa_aplicada=Decimal("0"),
@@ -209,16 +275,18 @@ def calcular_renta_nrus(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
     )
 
 
-def calcular_renta(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
+def calcular_renta(
+    inputs: InputsCalculoRenta, config: Optional[Dict] = None
+) -> ResultadoCalculoRenta:
     regimen = inputs.regimen.upper()
     if regimen == "RG":
-        return calcular_renta_rg(inputs)
+        return calcular_renta_rg(inputs, config)
     elif regimen == "RMT":
-        return calcular_renta_rmt(inputs)
+        return calcular_renta_rmt(inputs, config)
     elif regimen == "RER":
-        return calcular_renta_rer(inputs)
+        return calcular_renta_rer(inputs, config)
     elif regimen == "NRUS":
-        return calcular_renta_nrus(inputs)
+        return calcular_renta_nrus(inputs, config)
     else:
         raise ValueError(f"Regimen desconocido: {regimen}")
 
@@ -226,9 +294,14 @@ def calcular_renta(inputs: InputsCalculoRenta) -> ResultadoCalculoRenta:
 def calcular_pdt621(
     igv_inputs: InputsCalculoIGV,
     renta_inputs: InputsCalculoRenta,
+    config: Optional[Dict] = None,
 ) -> ResultadoPDT621:
-    igv = calcular_igv(igv_inputs)
-    renta = calcular_renta(renta_inputs)
+    """
+    Calculo principal. Si config es None, usa defaults legales SUNAT.
+    Para PDTs existentes, pasar su snapshot (pdt.config_snapshot).
+    """
+    igv = calcular_igv(igv_inputs, config)
+    renta = calcular_renta(renta_inputs, config)
     total = igv.igv_a_pagar + renta.renta_a_pagar
     return ResultadoPDT621(
         igv=igv,

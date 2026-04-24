@@ -4,6 +4,7 @@ from app.config import settings
 from app.database import Base, engine
 from app.models import models  # noqa
 from app.routers import auth, empresas, calendario, pdt621
+from app.routers import configuracion_tributaria
 
 Base.metadata.create_all(bind=engine)
 
@@ -27,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(empresas.router)
 app.include_router(calendario.router)
 app.include_router(pdt621.router)
+app.include_router(configuracion_tributaria.router)
 
 
 @app.get("/")

@@ -17,6 +17,7 @@ from app.services.pdt621_calculo_service import (
     calcular_pdt621, InputsCalculoIGV, InputsCalculoRenta
 )
 from app.services.empresa_service import obtener_credenciales_sunat
+from app.services.configuracion_tributaria_service import obtener_o_crear_configuracion, config_a_snapshot
 
 
 TRANSICIONES_ESTADO = {
@@ -58,6 +59,7 @@ def obtener_o_crear_pdt(db: Session, empresa: Empresa, ano: int, mes: int) -> PD
         ano=ano, mes=mes,
         fecha_vencimiento=fecha_venc,
         estado="DRAFT",
+        config_snapshot=config_a_snapshot(obtener_o_crear_configuracion(db, empresa.id)),
     )
     db.add(pdt)
     db.commit()
@@ -219,7 +221,7 @@ def recalcular_pdt(db: Session, pdt: PDT621, empresa: Empresa) -> PDT621:
         ),
         pagos_anticipados=pdt.c311_pagos_anticipados or Decimal("0"),
     )
-    resultado = calcular_pdt621(igv_inputs, renta_inputs)
+    resultado = calcular_pdt621(igv_inputs, renta_inputs, config=pdt.config_snapshot)
 
     pdt.c184_igv_a_pagar = resultado.igv.igv_a_pagar
     pdt.c309_pago_a_cuenta_renta = resultado.renta.renta_bruta
@@ -257,7 +259,7 @@ def aplicar_ajustes(db: Session, pdt: PDT621, empresa: Empresa, ajustes: dict) -
         categoria_nrus=ajustes.get("categoria_nrus"),
         ingresos_acumulados_ano=Decimal(str(ajustes.get("ingresos_acumulados_ano", 0))),
     )
-    resultado = calcular_pdt621(igv_inputs, renta_inputs)
+    resultado = calcular_pdt621(igv_inputs, renta_inputs, config=pdt.config_snapshot)
 
     pdt.c310_retenciones = Decimal(str(ajustes.get("retenciones_periodo", 0)))
     pdt.c311_pagos_anticipados = Decimal(str(ajustes.get("pagos_anticipados", 0)))
