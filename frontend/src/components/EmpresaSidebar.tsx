@@ -1,7 +1,7 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, BookOpen, Receipt, Users, BarChart3,
-  Settings, LogOut, ChevronLeft, ChevronRight, ArrowLeft
+  Settings, Scale, LogOut, ChevronLeft, ChevronRight, ArrowLeft
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useUIStore } from '../store/uiStore'
@@ -46,6 +46,7 @@ export default function EmpresaSidebar({ empresa }: EmpresaSidebarProps) {
 
   const NAV_CONFIG: NavItem[] = [
     { to: `/empresas/${empresa.id}/configuracion`, label: 'Configuracion', icon: Settings },
+    { to: `/empresas/${empresa.id}/tributario`, label: 'Tributario', icon: Scale },
   ]
 
   return (

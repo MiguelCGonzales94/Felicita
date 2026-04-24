@@ -12,6 +12,7 @@ import ConfiguracionEmpresa from './pages/empresa/Configuracion'
 import DeclaracionesEmpresa from './pages/empresa/Declaraciones'
 import DeclaracionEditor from './pages/empresa/DeclaracionEditor'
 import ModuloPlaceholder from './pages/empresa/Placeholder'
+import Tributario from './pages/empresa/Tributario'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -79,6 +80,7 @@ export default function App() {
             />
           } />
           <Route path="configuracion" element={<ConfiguracionEmpresa />} />
+          <Route path="tributario" element={<Tributario />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
