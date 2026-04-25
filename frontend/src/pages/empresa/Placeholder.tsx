@@ -8,7 +8,7 @@ interface Ctx { empresa: Empresa }
 interface PlaceholderProps {
   titulo: string
   descripcion: string
-  icono: React.ComponentType<{ size?: number; className?: string }>
+  icono: React.ComponentType<{ size?: string | number; className?: string }>
   eyebrow?: string
 }
 

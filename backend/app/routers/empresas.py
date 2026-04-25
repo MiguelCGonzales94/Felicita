@@ -201,7 +201,16 @@ def actualizar_empresa(
     current_user: Usuario = Depends(require_contador),
 ):
     empresa = get_empresa_or_404(empresa_id, current_user, db)
-    data = preparar_datos_empresa(payload.model_dump(exclude_unset=True))
+    # Incluir siempre las credenciales (incluso si vienen vacías para limpiarlas)
+    data_dict = payload.model_dump(exclude_unset=True)
+
+    # Si viene sunat_client_id vacío string, convertirlo a None para limpiarlo
+    if "sunat_client_id" in data_dict and data_dict["sunat_client_id"] == "":
+        data_dict["sunat_client_id"] = None
+    if "sunat_client_secret" in data_dict and data_dict["sunat_client_secret"] == "":
+        data_dict["sunat_client_secret"] = None
+
+    data = preparar_datos_empresa(data_dict)
     for field, value in data.items():
         setattr(empresa, field, value)
     db.commit()

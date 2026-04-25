@@ -1,6 +1,6 @@
 interface FilterChipProps {
   label: string
-  value: string | number
+  value?: string | number
   active?: boolean
   count?: number
   onClick: () => void

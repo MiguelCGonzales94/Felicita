@@ -48,7 +48,7 @@ export const empresaService = {
   },
 
   async consultarRucSunat(ruc: string) {
-    const { data } = await api.get(`/empresas/validar-ruc//${ruc}`)
+    const { data } = await api.get(`/empresas/validar-ruc/${ruc}`)
     return data as {
       ruc: string
       es_valido: boolean

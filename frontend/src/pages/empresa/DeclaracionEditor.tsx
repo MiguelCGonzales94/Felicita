@@ -4,6 +4,7 @@ import {
   ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle,
   Save, Send, XCircle, RefreshCw, Info, Database, Cloud,
   TrendingUp, TrendingDown, FileText, Settings, Eye,
+  Upload, Plus,
 } from 'lucide-react'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
@@ -48,6 +49,22 @@ export default function DeclaracionEditor() {
 
   // Modales de detalle de comprobantes
   const [modalDetalle, setModalDetalle] = useState<null | 'ventas' | 'compras'>(null)
+
+  // Modal para subir comprobante manualmente
+  const [modalSubir, setModalSubir] = useState<null | 'venta' | 'compra'>(null)
+  const [formSubir, setFormSubir] = useState({
+    tipo_comprobante: '01',
+    serie: '',
+    numero: '',
+    fecha_emision: '',
+    ruc: '',
+    razon_social: '',
+    base_gravada: 0,
+    base_no_gravada: 0,
+    igv: 0,
+    total: 0,
+  })
+  const [subiendo, setSubiendo] = useState(false)
 
   const ajustesDebounced = useDebounce(ajustes, 600)
 
@@ -160,9 +177,63 @@ export default function DeclaracionEditor() {
   // Callback cuando se aplican cambios en el modal: recarga el PDT y recalcula
   async function onSeleccionAplicada() {
     if (!pdt) return
-    setMensaje({ tipo: 'success', texto: 'Seleccion aplicada. PDT recalculado.' })
+    setMensaje({ tipo: 'success', texto: 'Selección aplicada. PDT recalculado.' })
     setTimeout(() => setMensaje(null), 2500)
     await cargar(pdt.id)
+  }
+
+  async function handleSubirComprobante() {
+    if (!pdt) return
+    setSubiendo(true)
+    try {
+      if (modalSubir === 'venta') {
+        await pdt621Service.agregarVenta(pdt.id, {
+          tipo_comprobante: formSubir.tipo_comprobante,
+          serie: formSubir.serie,
+          numero: formSubir.numero,
+          fecha_emision: formSubir.fecha_emision,
+          ruc_cliente: formSubir.ruc,
+          razon_social_cliente: formSubir.razon_social,
+          base_gravada: formSubir.base_gravada,
+          base_no_gravada: formSubir.base_no_gravada,
+          exportacion: 0,
+          igv: formSubir.igv,
+          total: formSubir.total,
+        })
+        setMensaje({ tipo: 'success', texto: 'Venta agregada correctamente' })
+      } else {
+        await pdt621Service.agregarCompra(pdt.id, {
+          tipo_comprobante: formSubir.tipo_comprobante,
+          serie: formSubir.serie,
+          numero: formSubir.numero,
+          fecha_emision: formSubir.fecha_emision,
+          ruc_proveedor: formSubir.ruc,
+          razon_social_proveedor: formSubir.razon_social,
+          base_gravada: formSubir.base_gravada,
+          base_no_gravada: formSubir.base_no_gravada,
+          igv: formSubir.igv,
+          total: formSubir.total,
+        })
+        setMensaje({ tipo: 'success', texto: 'Compra agregada correctamente' })
+      }
+      setModalSubir(null)
+      setFormSubir({
+        tipo_comprobante: '01', serie: '', numero: '',
+        fecha_emision: '', ruc: '', razon_social: '',
+        base_gravada: 0, base_no_gravada: 0, igv: 0, total: 0,
+      })
+      await cargar(pdt.id)
+    } catch (err: any) {
+      setMensaje({ tipo: 'error', texto: err.response?.data?.detail || 'Error al subir comprobante' })
+    } finally {
+      setSubiendo(false)
+    }
+  }
+
+  function calcularIGV() {
+    const base = formSubir.base_gravada + formSubir.base_no_gravada
+    const igv = base * 0.18
+    setFormSubir(f => ({ ...f, igv: Math.round(igv * 100) / 100, total: Math.round((base + igv) * 100) / 100 }))
   }
 
   if (loading || !pdt) {
@@ -289,13 +360,31 @@ export default function DeclaracionEditor() {
                     <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold">
                       <TrendingUp size={12} className="text-success-600" /> Ventas (RVIE)
                     </div>
-                    <button
-                      onClick={() => setModalDetalle('ventas')}
-                      className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
-                      title="Ver detalle de comprobantes"
-                    >
-                      <Eye size={12} /> Ver detalle
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {esEditable && (
+                        <button
+                          onClick={() => {
+                            setFormSubir({
+                              tipo_comprobante: '01', serie: '', numero: '',
+                              fecha_emision: '', ruc: '', razon_social: '',
+                              base_gravada: 0, base_no_gravada: 0, igv: 0, total: 0,
+                            })
+                            setModalSubir('venta')
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-800 font-medium"
+                          title="Subir venta manualmente"
+                        >
+                          <Upload size={12} /> Subir venta
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setModalDetalle('ventas')}
+                        className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
+                        title="Ver detalle de comprobantes"
+                      >
+                        <Eye size={12} /> Ver detalle
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-1 text-sm">
                     <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c100_ventas_gravadas))} />
@@ -313,13 +402,31 @@ export default function DeclaracionEditor() {
                     <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide font-semibold">
                       <TrendingDown size={12} className="text-brand-600" /> Compras (RCE)
                     </div>
-                    <button
-                      onClick={() => setModalDetalle('compras')}
-                      className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
-                      title="Ver detalle de comprobantes"
-                    >
-                      <Eye size={12} /> Ver detalle
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {esEditable && (
+                        <button
+                          onClick={() => {
+                            setFormSubir({
+                              tipo_comprobante: '01', serie: '', numero: '',
+                              fecha_emision: '', ruc: '', razon_social: '',
+                              base_gravada: 0, base_no_gravada: 0, igv: 0, total: 0,
+                            })
+                            setModalSubir('compra')
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-800 font-medium"
+                          title="Subir compra manualmente"
+                        >
+                          <Upload size={12} /> Subir compra
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setModalDetalle('compras')}
+                        className="inline-flex items-center gap-1 text-[11px] text-brand-800 hover:text-brand-900 font-medium hover:underline"
+                        title="Ver detalle de comprobantes"
+                      >
+                        <Eye size={12} /> Ver detalle
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-1 text-sm">
                     <DataRow label="Gravadas" value={formatoSoles(Number(pdt.c120_compras_gravadas))} />
@@ -625,6 +732,164 @@ export default function DeclaracionEditor() {
           onAplicado={onSeleccionAplicada}
         />
       )}
+
+      {/* ── Modal: Subir comprobante manualmente ── */}
+      <Modal
+        isOpen={modalSubir !== null}
+        onClose={() => !subiendo && setModalSubir(null)}
+        title={modalSubir === 'venta' ? 'Subir venta manualmente' : 'Subir compra manualmente'}
+        description="Agrega un comprobante que no fue descargado desde SUNAT"
+        size="md"
+        footer={
+          <>
+            <button onClick={() => setModalSubir(null)} className="btn-secondary" disabled={subiendo}>
+              Cancelar
+            </button>
+            <button onClick={handleSubirComprobante} disabled={subiendo} className="btn-primary flex items-center gap-2">
+              {subiendo ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              {subiendo ? 'Guardando...' : 'Agregar comprobante'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Tipo de documento</label>
+              <select
+                value={formSubir.tipo_comprobante}
+                onChange={e => setFormSubir(f => ({ ...f, tipo_comprobante: e.target.value }))}
+                className="input"
+                disabled={subiendo}
+              >
+                <option value="01">Factura</option>
+                <option value="03">Boleta</option>
+                <option value="07">Nota de Crédito</option>
+                <option value="08">Nota de Débito</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Fecha de emisión</label>
+              <input
+                type="date"
+                value={formSubir.fecha_emision}
+                onChange={e => setFormSubir(f => ({ ...f, fecha_emision: e.target.value }))}
+                className="input"
+                disabled={subiendo}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Serie</label>
+              <input
+                type="text"
+                value={formSubir.serie}
+                onChange={e => setFormSubir(f => ({ ...f, serie: e.target.value.toUpperCase() }))}
+                className="input font-mono"
+                placeholder="F001"
+                disabled={subiendo}
+              />
+            </div>
+            <div>
+              <label className="label">Número</label>
+              <input
+                type="text"
+                value={formSubir.numero}
+                onChange={e => setFormSubir(f => ({ ...f, numero: e.target.value }))}
+                className="input font-mono"
+                placeholder="000001"
+                disabled={subiendo}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">RUC {modalSubir === 'venta' ? 'cliente' : 'proveedor'}</label>
+              <input
+                type="text"
+                value={formSubir.ruc}
+                onChange={e => setFormSubir(f => ({ ...f, ruc: e.target.value }))}
+                className="input font-mono"
+                placeholder="20100070970"
+                maxLength={11}
+                disabled={subiendo}
+              />
+            </div>
+            <div>
+              <label className="label">Razón Social</label>
+              <input
+                type="text"
+                value={formSubir.razon_social}
+                onChange={e => setFormSubir(f => ({ ...f, razon_social: e.target.value.toUpperCase() }))}
+                className="input"
+                placeholder="NOMBRE DEL CLIENTE"
+                disabled={subiendo}
+              />
+            </div>
+          </div>
+          <div className="border-t pt-4 mt-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase mb-3">Montos (S/)</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Base Gravada</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formSubir.base_gravada || ''}
+                  onChange={e => setFormSubir(f => ({ ...f, base_gravada: Number(e.target.value) || 0 }))}
+                  onBlur={calcularIGV}
+                  className="input font-mono"
+                  placeholder="0.00"
+                  disabled={subiendo}
+                />
+              </div>
+              <div>
+                <label className="label">Base No Gravada</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formSubir.base_no_gravada || ''}
+                  onChange={e => setFormSubir(f => ({ ...f, base_no_gravada: Number(e.target.value) || 0 }))}
+                  onBlur={calcularIGV}
+                  className="input font-mono"
+                  placeholder="0.00"
+                  disabled={subiendo}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <div>
+                <label className="label">IGV (18%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formSubir.igv || ''}
+                  onChange={e => setFormSubir(f => ({ ...f, igv: Number(e.target.value) || 0 }))}
+                  className="input font-mono"
+                  placeholder="0.00"
+                  disabled={subiendo}
+                />
+              </div>
+              <div>
+                <label className="label">Total</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formSubir.total || ''}
+                  onChange={e => setFormSubir(f => ({ ...f, total: Number(e.target.value) || 0 }))}
+                  className="input font-mono font-bold"
+                  placeholder="0.00"
+                  disabled={subiendo}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-2">
+              Haz clic fuera de los campos de Base para calcular automáticamente el IGV y Total.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </>
   )
 }

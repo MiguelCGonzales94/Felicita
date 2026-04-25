@@ -371,3 +371,211 @@ def aplicar_seleccion_compras_endpoint(
     pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
     selecciones = [s.model_dump() for s in payload.selecciones]
     return aplicar_seleccion_compras(db, pdt, empresa, selecciones)
+
+
+# ════════════════════════════════════════════════════════════
+# ELIMINAR PDT (borrador o documento declarado con confirmación)
+# ════════════════════════════════════════════════════════════
+
+@router.delete("/pdt621/{pdt_id}", status_code=204)
+def eliminar_pdt(
+    pdt_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """
+    Elimina un PDT.
+    - DRAFT: Siempre se puede eliminar.
+    - ACCEPTED/REJECTED: Se puede eliminar con confirmación del contador.
+    - SUBMITTED/GENERATED: No se puede eliminar directamente.
+    """
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+
+    # Solo se puede eliminar si está en DRAFT, ACCEPTED o REJECTED
+    if pdt.estado in ("SUBMITTED", "GENERATED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar un PDT en estado {pdt.estado}. Primero debe volver a borrador o completar el proceso.",
+        )
+
+    empresa_nombre = empresa.razon_social
+    db.delete(pdt)
+    db.commit()
+    registrar_log(
+        db, current_user.id, empresa.id, "PDT621_ELIMINADO",
+        f"PDT {pdt.mes:02d}/{pdt.ano} de {empresa_nombre} eliminado (estado: {pdt.estado})",
+        nivel="WARNING",
+    )
+
+
+# ════════════════════════════════════════════════════════════
+# AGREGAR COMPROBANTES MANUALMENTE
+# ════════════════════════════════════════════════════════════
+
+@router.post("/pdt621/{pdt_id}/comprobantes/ventas")
+def agregar_venta_manual(
+    pdt_id: int,
+    venta: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """Agrega un comprobante de venta manualmente al PDT."""
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+
+    if pdt.estado not in ("DRAFT", "REJECTED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se pueden agregar comprobantes en estado {pdt.estado}",
+        )
+
+    # Validar campos obligatorios
+    campos_requeridos = ["tipo_comprobante", "serie", "numero", "fecha_emision", "razon_social_cliente", "total"]
+    for campo in campos_requeridos:
+        if campo not in venta or not venta[campo]:
+            raise HTTPException(status_code=400, detail=f"Campo requerido: {campo}")
+
+    nuevo = PDT621VentaDetalle(
+        pdt621_id=pdt.id,
+        tipo_comprobante=venta["tipo_comprobante"],
+        serie=venta["serie"],
+        numero=venta["numero"],
+        fecha_emision=venta["fecha_emision"],
+        ruc_cliente=venta.get("ruc_cliente"),
+        razon_social_cliente=venta["razon_social_cliente"],
+        base_gravada=Decimal(str(venta.get("base_gravada", 0))),
+        base_no_gravada=Decimal(str(venta.get("base_no_gravada", 0))),
+        exportacion=Decimal(str(venta.get("exportacion", 0))),
+        igv=Decimal(str(venta.get("igv", 0))),
+        total=Decimal(str(venta["total"])),
+        incluido=True,
+        fuente="MANUAL",
+    )
+    db.add(nuevo)
+    db.commit()
+
+    # Recalcular el PDT después de agregar
+    from app.services.pdt621_calculo_service import recalcular_totales_pdt
+    recalcular_totales_pdt(db, pdt, empresa)
+
+    return {"mensaje": "Venta agregada correctamente", "id": nuevo.id}
+
+
+@router.post("/pdt621/{pdt_id}/comprobantes/compras")
+def agregar_compra_manual(
+    pdt_id: int,
+    compra: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """Agrega un comprobante de compra manualmente al PDT."""
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+
+    if pdt.estado not in ("DRAFT", "REJECTED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se pueden agregar comprobantes en estado {pdt.estado}",
+        )
+
+    campos_requeridos = ["tipo_comprobante", "serie", "numero", "fecha_emision", "razon_social_proveedor", "total"]
+    for campo in campos_requeridos:
+        if campo not in compra or not compra[campo]:
+            raise HTTPException(status_code=400, detail=f"Campo requerido: {campo}")
+
+    nuevo = PDT621CompraDetalle(
+        pdt621_id=pdt.id,
+        tipo_comprobante=compra["tipo_comprobante"],
+        serie=compra["serie"],
+        numero=compra["numero"],
+        fecha_emision=compra["fecha_emision"],
+        ruc_proveedor=compra.get("ruc_proveedor"),
+        razon_social_proveedor=compra["razon_social_proveedor"],
+        base_gravada=Decimal(str(compra.get("base_gravada", 0))),
+        base_no_gravada=Decimal(str(compra.get("base_no_gravada", 0))),
+        igv=Decimal(str(compra.get("igv", 0))),
+        total=Decimal(str(compra["total"])),
+        incluido=True,
+        fuente="MANUAL",
+    )
+    db.add(nuevo)
+    db.commit()
+
+    from app.services.pdt621_calculo_service import recalcular_totales_pdt
+    recalcular_totales_pdt(db, pdt, empresa)
+
+    return {"mensaje": "Compra agregada correctamente", "id": nuevo.id}
+
+
+# ════════════════════════════════════════════════════════════
+# DESCARGAR PDT MENSUAL
+# ════════════════════════════════════════════════════════════
+
+@router.get("/pdt621/{pdt_id}/descargar")
+def descargar_pdt(
+    pdt_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """
+    Genera y retorna el archivo del PDT 621 en formato texto.
+    El archivo puede ser presentado directamente en SUNAT.
+    """
+    from fastapi.responses import Response
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+
+    contenido = generar_txt_pdt621(pdt, empresa)
+
+    filename = f"PDT621_{empresa.ruc}_{pdt.ano}{pdt.mes:02d}.txt"
+    return Response(
+        content=contenido.encode("utf-8"),
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def generar_txt_pdt621(pdt: PDT621, empresa: Empresa) -> str:
+    """
+    Genera el contenido TXT del PDT 621 para presentar a SUNAT.
+    Formato según estructura PDT 621 oficial.
+    """
+    lines = []
+    lines.append(f"# PDT 621 - {empresa.razon_social} (RUC: {empresa.ruc})")
+    lines.append(f"# Periodo: {pdt.mes:02d}/{pdt.ano}")
+    lines.append(f"# Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"# Estado: {pdt.estado}")
+    lines.append("")
+
+    # Ventas
+    lines.append("# VENTAS (RVIE)")
+    lines.append(f"100|{float(pdt.c100_ventas_gravadas or 0):.2f}")
+    lines.append(f"102|{float(pdt.c102_descuentos or 0):.2f}")
+    lines.append(f"104|{float(pdt.c104_ventas_no_gravadas or 0):.2f}")
+    lines.append(f"105|{float(pdt.c105_exportaciones or 0):.2f}")
+    lines.append(f"140|{float(pdt.c140_subtotal_ventas or 0):.2f}")
+    lines.append(f"140IGV|{float(pdt.c140igv_igv_debito or 0):.2f}")
+    lines.append("")
+
+    # Compras
+    lines.append("# COMPRAS (RCE)")
+    lines.append(f"120|{float(pdt.c120_compras_gravadas or 0):.2f}")
+    lines.append(f"180|{float(pdt.c180_igv_credito or 0):.2f}")
+    lines.append(f"184|{float(pdt.c184_igv_a_pagar or 0):.2f}")
+    lines.append("")
+
+    # Renta
+    lines.append("# RENTA")
+    lines.append(f"301|{float(pdt.c301_ingresos_netos or 0):.2f}")
+    lines.append(f"309|{float(pdt.c309_pago_a_cuenta_renta or 0):.2f}")
+    lines.append(f"310|{float(pdt.c310_retenciones or 0):.2f}")
+    lines.append(f"311|{float(pdt.c311_pagos_anticipados or 0):.2f}")
+    lines.append(f"318|{float(pdt.c318_renta_a_pagar or 0):.2f}")
+    lines.append("")
+
+    # Total
+    lines.append("# TOTAL")
+    lines.append(f"TOTAL_A_PAGAR|{float(pdt.total_a_pagar or 0):.2f}")
+    if pdt.nps:
+        lines.append(f"NPS|{pdt.nps}")
+    if pdt.numero_operacion:
+        lines.append(f"NUMERO_OPERACION|{pdt.numero_operacion}")
+
+    return "\n".join(lines)

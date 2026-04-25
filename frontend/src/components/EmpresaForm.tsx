@@ -62,7 +62,7 @@ export default function EmpresaForm({ empresa, onSubmit, onCancel, loading }: Em
     setValidandoRuc(true)
     try {
       const res = await empresaService.consultarRucSunat(ruc)
-      setValidacionRuc(res)
+      setValidacionRuc({...res, ya_registrada: res.ya_registrada ?? false})
       if (res.es_valido && !res.ya_registrada) {
         setForm(f => ({
           ...f,

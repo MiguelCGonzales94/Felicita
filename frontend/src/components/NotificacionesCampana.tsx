@@ -82,8 +82,8 @@ export default function NotificacionesCampana() {
                     <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{n.mensaje}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-gray-400">{new Date(n.fecha_envio).toLocaleDateString('es-PE')}</span>
-                      {n.enviado_email && <Mail size={10} className="text-success-600" title="Enviado por email" />}
-                      {n.enviado_whatsapp && <MessageCircle size={10} className="text-success-600" title="Enviado por WhatsApp" />}
+                      {n.enviado_email && <Mail size={10} className="text-success-600" />}
+                      {n.enviado_whatsapp && <MessageCircle size={10} className="text-success-600" />}
                     </div>
                   </div>
                   <span className="text-xs font-mono font-bold text-gray-900 dark:text-white flex-shrink-0">

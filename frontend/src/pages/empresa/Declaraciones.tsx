@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import {
   Plus, FileText, Calendar, ArrowRight, Loader2,
-  Clock, CheckCircle2, AlertCircle, Trash2
+  Clock, CheckCircle2, AlertCircle, Trash2, Upload, Download
 } from 'lucide-react'
 import PageHeader from '../../components/PageHeader'
 import { EmptyState } from '../../components/ui'
@@ -22,8 +22,10 @@ export default function DeclaracionesEmpresa() {
   const [loading, setLoading] = useState(true)
   const [modalGenerar, setModalGenerar] = useState(false)
   const [modalEliminar, setModalEliminar] = useState<PDT621ListItem | null>(null)
+  const [modalSubir, setModalSubir] = useState<'venta' | 'compra' | null>(null)
   const [generando, setGenerando] = useState(false)
   const [eliminando, setEliminando] = useState(false)
+  const [descargando, setDescargando] = useState<number | null>(null)
 
   const hoy = new Date()
   const [formGenerar, setFormGenerar] = useState({
@@ -58,6 +60,31 @@ export default function DeclaracionesEmpresa() {
       setModalEliminar(null)
       await cargar()
     } finally { setEliminando(false) }
+  }
+
+  async function handleDescargarPDT(pdtItem: PDT621ListItem, e: React.MouseEvent) {
+    e.stopPropagation()
+    setDescargando(pdtItem.id)
+    try {
+      const blob = await pdt621Service.descargarPDT(pdtItem.id)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `PDT621_${empresa.ruc}_${pdtItem.ano}${String(pdtItem.mes).padStart(2, '0')}.txt`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      console.error('Error al descargar PDT:', err)
+      alert('Error al descargar el PDT')
+    } finally {
+      setDescargando(null)
+    }
+  }
+
+  function puedeEliminar(pdt: PDT621ListItem) {
+    return pdt.estado === 'DRAFT' || pdt.estado === 'ACCEPTED' || pdt.estado === 'REJECTED'
   }
 
   // Agrupar por ano
@@ -153,6 +180,8 @@ export default function DeclaracionesEmpresa() {
                         pdt={pdt}
                         onVer={() => navigate(`/empresas/${empresa.id}/declaraciones/${pdt.id}`)}
                         onEliminar={() => setModalEliminar(pdt)}
+                        puedeEliminar={puedeEliminar}
+                        onDescargarPDT={handleDescargarPDT}
                       />
                     ))}
                 </div>
@@ -252,10 +281,12 @@ function StatCard({ icon, label, value, accent = 'neutral' }: {
   )
 }
 
-function PDTRow({ pdt, onVer, onEliminar }: {
+function PDTRow({ pdt, onVer, onEliminar, puedeEliminar, onDescargarPDT }: {
   pdt: PDT621ListItem
   onVer: () => void
   onEliminar: () => void
+  puedeEliminar: (pdt: PDT621ListItem) => boolean
+  onDescargarPDT: (pdt: PDT621ListItem, e: React.MouseEvent) => void
 }) {
   const estadoCfg = ESTADO_CONFIG[pdt.estado]
   const fechaVenc = new Date(pdt.fecha_vencimiento + 'T00:00:00')
@@ -306,13 +337,22 @@ function PDTRow({ pdt, onVer, onEliminar }: {
       </div>
 
       <div className="flex items-center gap-1 flex-shrink-0">
-        {pdt.estado === 'DRAFT' && (
+        {puedeEliminar(pdt) && (
           <button
             onClick={(e) => { e.stopPropagation(); onEliminar() }}
             className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-danger-50 rounded-lg transition-all text-danger-600"
-            title="Eliminar borrador"
+            title={pdt.estado === 'DRAFT' ? 'Eliminar borrador' : `Eliminar ${pdt.estado === 'ACCEPTED' ? 'aceptada' : 'rechazada'}`}
           >
             <Trash2 size={14} />
+          </button>
+        )}
+        {pdt.estado === 'ACCEPTED' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDescargarPDT(pdt, e) }}
+            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-success-50 rounded-lg transition-all text-success-600"
+            title="Descargar PDT"
+          >
+            <Download size={14} />
           </button>
         )}
         <ArrowRight size={14} className="text-gray-400 group-hover:text-brand-800 group-hover:translate-x-0.5 transition-all" />

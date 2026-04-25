@@ -109,6 +109,54 @@ export const pdt621Service = {
     )
     return data as PDT621
   },
+
+  // Eliminar PDT (borrador o declarado con confirmación)
+  async eliminar(pdtId: number) {
+    await api.delete(`/pdt621/${pdtId}`)
+  },
+
+  // Agregar comprobante de venta manualmente
+  async agregarVenta(pdtId: number, venta: {
+    tipo_comprobante: string
+    serie: string
+    numero: string
+    fecha_emision: string
+    ruc_cliente: string
+    razon_social_cliente: string
+    base_gravada: number
+    base_no_gravada: number
+    exportacion: number
+    igv: number
+    total: number
+  }) {
+    const { data } = await api.post(`/pdt621/${pdtId}/comprobantes/ventas`, venta)
+    return data
+  },
+
+  // Agregar comprobante de compra manualmente
+  async agregarCompra(pdtId: number, compra: {
+    tipo_comprobante: string
+    serie: string
+    numero: string
+    fecha_emision: string
+    ruc_proveedor: string
+    razon_social_proveedor: string
+    base_gravada: number
+    base_no_gravada: number
+    igv: number
+    total: number
+  }) {
+    const { data } = await api.post(`/pdt621/${pdtId}/comprobantes/compras`, compra)
+    return data
+  },
+
+  // Descargar PDT mensual (archivo)
+  async descargarPDT(pdtId: number) {
+    const { data } = await api.get(`/pdt621/${pdtId}/descargar`, {
+      responseType: 'blob',
+    })
+    return data as Blob
+  },
 }
 
 

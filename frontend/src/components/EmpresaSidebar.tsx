@@ -13,7 +13,7 @@ import DarkModeToggle from './DarkModeToggle'
 interface NavItem {
   to: string
   label: string
-  icon: React.ComponentType<{ size?: number; className?: string }>
+  icon: React.ComponentType<{ size?: string | number; className?: string }>
   badge?: string | number
 }
 
