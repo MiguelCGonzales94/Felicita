@@ -1,4 +1,6 @@
 import { ReactNode } from 'react'
+import NotificacionesCampana from './NotificacionesCampana'
+import DarkModeToggle from './DarkModeToggle'
 
 interface PageHeaderProps {
   eyebrow?: string
@@ -19,6 +21,10 @@ export default function PageHeader({ eyebrow, title, description, actions }: Pag
           {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
+        <div>
+        <DarkModeToggle />
+        <NotificacionesCampana />
+        </div>
       </div>
     </div>
   )

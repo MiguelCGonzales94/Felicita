@@ -61,7 +61,7 @@ export default function EmpresaForm({ empresa, onSubmit, onCancel, loading }: Em
   async function validarRucAuto(ruc: string) {
     setValidandoRuc(true)
     try {
-      const res = await empresaService.validarRuc(ruc)
+      const res = await empresaService.consultarRucSunat(ruc)
       setValidacionRuc(res)
       if (res.es_valido && !res.ya_registrada) {
         setForm(f => ({

@@ -619,6 +619,7 @@ export default function DeclaracionEditor() {
           isOpen={!!modalDetalle}
           onClose={() => setModalDetalle(null)}
           pdtId={pdt.id}
+          empresaId={empresa.id}
           tipo={modalDetalle}
           editable={esEditable}
           onAplicado={onSeleccionAplicada}

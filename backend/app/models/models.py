@@ -460,3 +460,43 @@ class ConfiguracionTributariaEmpresa(Base):
 
     # Relacion
     empresa = relationship("Empresa", back_populates="configuracion_tributaria")
+
+
+# ════════════════════════════════════════════════════════════
+# NOTIFICACIONES DE PAGO MENSUAL
+# ════════════════════════════════════════════════════════════
+
+class NotificacionPago(Base):
+    __tablename__ = "notificaciones_pago"
+
+    id = Column(Integer, primary_key=True, index=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False, index=True)
+    contador_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    
+    # Periodo
+    ano = Column(Integer, nullable=False)
+    mes = Column(Integer, nullable=False)
+    
+    # Montos
+    igv_a_pagar = Column(Numeric(15, 2), default=0)
+    renta_a_pagar = Column(Numeric(15, 2), default=0)
+    total_a_pagar = Column(Numeric(15, 2), default=0)
+    fecha_vencimiento = Column(Date, nullable=False)
+    
+    # Canales de envio
+    enviado_app = Column(Boolean, default=False)
+    enviado_email = Column(Boolean, default=False)
+    enviado_whatsapp = Column(Boolean, default=False)
+    
+    # Estado
+    leido = Column(Boolean, default=False)
+    fecha_envio = Column(DateTime, default=datetime.utcnow)
+    fecha_lectura = Column(DateTime, nullable=True)
+    
+    # Mensaje
+    titulo = Column(String(255), nullable=False)
+    mensaje = Column(Text)
+    tipo = Column(String(30), default="PAGO_MENSUAL")  # PAGO_MENSUAL, VENCIMIENTO, ALERTA
+    
+    empresa = relationship("Empresa")
+    contador = relationship("Usuario")

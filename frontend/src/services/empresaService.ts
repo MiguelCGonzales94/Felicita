@@ -46,4 +46,23 @@ export const empresaService = {
     const { data } = await api.post(`/empresas/${id}/recalcular-alertas`)
     return data
   },
+
+  async consultarRucSunat(ruc: string) {
+    const { data } = await api.get(`/empresas/validar-ruc//${ruc}`)
+    return data as {
+      ruc: string
+      es_valido: boolean
+      tipo: string
+      razon_social: string | null
+      estado_sunat: string | null
+      condicion_domicilio: string | null
+      direccion_fiscal: string | null
+      distrito: string | null
+      provincia: string | null
+      departamento: string | null
+      fuente: string
+      mensaje: string
+      ya_registrada?: boolean
+    }
+  },
 }

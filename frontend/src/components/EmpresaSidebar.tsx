@@ -8,7 +8,8 @@ import { useUIStore } from '../store/uiStore'
 import { AlertBadge } from './ui'
 import EmpresaSwitcher from './EmpresaSwitcher'
 import type { Empresa } from '../types/empresa'
-
+import NotificacionesCampana from './NotificacionesCampana'
+import DarkModeToggle from './DarkModeToggle'
 interface NavItem {
   to: string
   label: string
@@ -36,12 +37,12 @@ export default function EmpresaSidebar({ empresa }: EmpresaSidebarProps) {
   const rutaActual = location.pathname.split(`/empresas/${empresa.id}/`)[1] || 'dashboard'
 
   const NAV_GESTION: NavItem[] = [
-    { to: `/empresas/${empresa.id}/dashboard`,     label: 'Dashboard',     icon: LayoutDashboard },
+    { to: `/empresas/${empresa.id}/dashboard`, label: 'Dashboard', icon: LayoutDashboard },
     { to: `/empresas/${empresa.id}/declaraciones`, label: 'Declaraciones', icon: FileText },
-    { to: `/empresas/${empresa.id}/libros`,        label: 'Libros electronicos', icon: BookOpen },
-    { to: `/empresas/${empresa.id}/facturacion`,   label: 'Facturacion',   icon: Receipt },
-    { to: `/empresas/${empresa.id}/planillas`,     label: 'Planillas',     icon: Users },
-    { to: `/empresas/${empresa.id}/reportes`,      label: 'Reportes',      icon: BarChart3 },
+    { to: `/empresas/${empresa.id}/libros`, label: 'Libros electronicos', icon: BookOpen },
+    { to: `/empresas/${empresa.id}/facturacion`, label: 'Facturacion', icon: Receipt },
+    { to: `/empresas/${empresa.id}/planillas`, label: 'Planillas', icon: Users },
+    { to: `/empresas/${empresa.id}/reportes`, label: 'Reportes', icon: BarChart3 },
   ]
 
   const NAV_CONFIG: NavItem[] = [
@@ -176,8 +177,7 @@ function SidebarItem({ to, label, icon: Icon, badge, collapsed }: NavItem & { co
       to={to}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-0.5 ${
-          isActive ? 'bg-brand-800 text-white' : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
+        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-0.5 ${isActive ? 'bg-brand-800 text-white' : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
         } ${collapsed ? 'justify-center' : ''}`
       }
     >

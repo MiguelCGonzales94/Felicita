@@ -3,20 +3,29 @@ import { create } from 'zustand'
 interface UIState {
   sidebarCollapsed: boolean
   toggleSidebar: () => void
-  setSidebarCollapsed: (v: boolean) => void
+  darkMode: boolean
+  toggleDarkMode: () => void
+  setDarkMode: (v: boolean) => void
 }
 
-const STORAGE_KEY = 'felicita_sidebar_collapsed'
-
 export const useUIStore = create<UIState>((set) => ({
-  sidebarCollapsed: localStorage.getItem(STORAGE_KEY) === 'true',
-  toggleSidebar: () => set((state) => {
-    const next = !state.sidebarCollapsed
-    localStorage.setItem(STORAGE_KEY, String(next))
-    return { sidebarCollapsed: next }
+  sidebarCollapsed: false,
+  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  darkMode: localStorage.getItem('felicita_dark') === 'true',
+  toggleDarkMode: () => set((state) => {
+    const next = !state.darkMode
+    localStorage.setItem('felicita_dark', String(next))
+    document.documentElement.classList.toggle('dark', next)
+    return { darkMode: next }
   }),
-  setSidebarCollapsed: (v) => {
-    localStorage.setItem(STORAGE_KEY, String(v))
-    set({ sidebarCollapsed: v })
+  setDarkMode: (v) => {
+    localStorage.setItem('felicita_dark', String(v))
+    document.documentElement.classList.toggle('dark', v)
+    set({ darkMode: v })
   },
 }))
+
+// Inicializar dark mode al cargar
+if (localStorage.getItem('felicita_dark') === 'true') {
+  document.documentElement.classList.add('dark')
+}

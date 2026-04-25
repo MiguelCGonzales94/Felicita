@@ -28,9 +28,9 @@ export default function DashboardContador() {
   }, [])
 
   const totales = {
-    verde:    empresas.filter(e => e.nivel_alerta === 'VERDE').length,
+    verde: empresas.filter(e => e.nivel_alerta === 'VERDE').length,
     amarillo: empresas.filter(e => e.nivel_alerta === 'AMARILLO').length,
-    rojo:     empresas.filter(e => e.nivel_alerta === 'ROJO').length,
+    rojo: empresas.filter(e => e.nivel_alerta === 'ROJO').length,
   }
 
   const empresasOrdenadas = [...empresas].sort((a, b) => {
@@ -40,7 +40,9 @@ export default function DashboardContador() {
 
   return (
     <>
+
       <PageHeader
+
         eyebrow="Panel contable"
         title={`Buen dia, ${usuario?.nombre || ''}`}
         description="Vista consolidada de todas las empresas a tu cargo"
@@ -48,6 +50,7 @@ export default function DashboardContador() {
           <button onClick={() => navigate('/empresas')} className="btn-primary flex items-center gap-2">
             <Plus size={16} /> Nueva Empresa
           </button>
+
         }
       />
 
@@ -92,6 +95,7 @@ export default function DashboardContador() {
                   key={empresa.id}
                   onClick={() => navigate(`/empresas/${empresa.id}`)}
                   className="px-5 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors group cursor-pointer"
+
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
                     <div className="w-1 h-12 rounded-full flex-shrink-0" style={{ backgroundColor: empresa.color_identificacion }} />

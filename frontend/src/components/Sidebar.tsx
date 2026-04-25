@@ -2,6 +2,8 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Building2, Calendar, FileText, Settings, LogOut, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useUIStore } from '../store/uiStore'
+import NotificacionesCampana from './NotificacionesCampana'
+import DarkModeToggle from './DarkModeToggle'
 
 interface NavItem {
   to: string
@@ -10,9 +12,9 @@ interface NavItem {
 }
 
 const NAV_PRINCIPAL: NavItem[] = [
-  { to: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
-  { to: '/empresas',      label: 'Empresas',      icon: Building2 },
-  { to: '/calendario',    label: 'Calendario',    icon: Calendar },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/empresas', label: 'Empresas', icon: Building2 },
+  { to: '/calendario', label: 'Calendario', icon: Calendar },
   { to: '/declaraciones', label: 'Declaraciones', icon: FileText },
 ]
 
@@ -32,7 +34,7 @@ export default function Sidebar() {
     <aside
       className="bg-sidebar text-sidebar-text flex flex-col transition-all duration-200 h-screen sticky top-0"
       style={{ width: collapsed ? '64px' : '240px' }}
-    >
+    > 
       <div className="flex items-center justify-between px-3 py-3 border-b border-sidebar-border relative" style={{ minHeight: '56px' }}>
         {!collapsed && (
           <div className="flex items-center gap-2 overflow-hidden">
@@ -113,8 +115,7 @@ function SidebarItem({ to, label, icon: Icon, collapsed }: NavItem & { collapsed
       to={to}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-0.5 ${
-          isActive ? 'bg-brand-800 text-white' : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
+        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-0.5 ${isActive ? 'bg-brand-800 text-white' : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
         } ${collapsed ? 'justify-center' : ''}`
       }
     >

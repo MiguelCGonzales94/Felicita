@@ -1,3 +1,4 @@
+from app.services.sunat_ruc_service import consultar_ruc_sunat
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, desc, case
@@ -61,7 +62,7 @@ def empresa_to_response(empresa: Empresa) -> dict:
 
 
 @router.get("/validar-ruc/{ruc}", response_model=ValidacionRUCResponse)
-def validar_ruc(
+async def validar_ruc(
     ruc: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_contador),
@@ -79,19 +80,20 @@ def validar_ruc(
         Empresa.activa == True,
     ).first() is not None
 
-    ficha = consultar_ruc(ruc)
+    ficha = await consultar_ruc(ruc)
     return ValidacionRUCResponse(
-        ruc=ruc, es_valido=True,
+        ruc=ruc, 
+        es_valido=True,
         mensaje="RUC valido" + (" (ya registrada)" if ya_registrada else ""),
         tipo=validacion["tipo"],
         ya_registrada=ya_registrada,
-        razon_social=ficha.razon_social if ficha else None,
-        estado_sunat=ficha.estado if ficha else None,
-        condicion_domicilio=ficha.condicion_domicilio if ficha else None,
-        direccion_fiscal=ficha.direccion_fiscal if ficha else None,
-        distrito=ficha.distrito if ficha else None,
-        provincia=ficha.provincia if ficha else None,
-        departamento=ficha.departamento if ficha else None,
+        razon_social=ficha.get("razon_social") if ficha else None,
+        estado_sunat=ficha.get("estado_sunat") if ficha else None,
+        condicion_domicilio=ficha.get("condicion_domicilio") if ficha else None,
+        direccion_fiscal=ficha.get("direccion_fiscal") if ficha else None,
+        distrito=ficha.get("distrito") if ficha else None,
+        provincia=ficha.get("provincia") if ficha else None,
+        departamento=ficha.get("departamento") if ficha else None,
     )
 
 
@@ -249,3 +251,15 @@ def recalcular_alertas(
     actualizar_alertas_empresa(db, empresa)
     db.refresh(empresa)
     return empresa_to_response(empresa)
+
+
+@router.get("/api/v1/sunat/consultar-ruc/{ruc}")
+async def consultar_ruc(
+    ruc: str,
+    current_user: Usuario = Depends(require_contador),
+):
+    """Consulta ficha RUC en SUNAT (real via apis.net.pe o mock)."""
+    if len(ruc) != 11 or not ruc.isdigit():
+        raise HTTPException(400, "RUC invalido: debe tener 11 digitos")
+    resultado = await consultar_ruc_sunat(ruc)
+    return resultado
