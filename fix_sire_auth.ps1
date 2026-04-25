@@ -1,4 +1,46 @@
-﻿"""
+# ============================================================
+#  FELICITA - Fix: Error autenticación SIRE HTTP 400 access_denied
+#  .\fix_sire_auth.ps1
+#  Ejecutar desde la raíz del proyecto: C:\Users\Miguel\Documents\Proyectos\Felicita\
+# ============================================================
+
+Write-Host ""
+Write-Host "Fix: Error autenticacion SIRE HTTP 400 access_denied" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path "backend")) {
+    Write-Host "ERROR: ejecuta desde la raiz 'felicita/'" -ForegroundColor Red
+    exit 1
+}
+
+# ============================================================
+# PASO 1: Mostrar la sección crítica del sire_client.py actual
+# ============================================================
+Write-Host "=== Verificando sire_client.py actual ===" -ForegroundColor Yellow
+$clientPath = "backend\app\services\sire_client.py"
+if (Test-Path $clientPath) {
+    $content = Get-Content $clientPath -Raw
+    # Buscar la construcción del username
+    if ($content -match 'username.*ruc.*usuario|ruc.*usuario.*username') {
+        Write-Host "  [INFO] Linea de username encontrada - verificar manualmente" -ForegroundColor Yellow
+    }
+    if ($content -match '"username".*f.*{.*ruc.*}.*{.*usuario.*}"') {
+        Write-Host "  [OK] Formato username parece correcto" -ForegroundColor Green
+    } else {
+        Write-Host "  [WARN] Verificar formato del username en _autenticar()" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  [WARN] No se encontro sire_client.py en la ruta esperada" -ForegroundColor Red
+}
+
+# ============================================================
+# PASO 2: Reescribir sire_client.py con fixes aplicados
+# ============================================================
+Write-Host ""
+Write-Host "=== Aplicando fix al sire_client.py ===" -ForegroundColor Yellow
+
+$sireClientContent = @'
+"""
 Cliente oficial SUNAT SIRE (Sistema Integrado de Registros Electronicos).
 
 Implementado segun el Manual de Servicios Web API - SIRE Ventas v25 y Compras v22.
@@ -18,7 +60,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# â”€â”€ Endpoints oficiales SUNAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Endpoints oficiales SUNAT ────────────────────────────────────────────────
 # IMPORTANTE: {client_id} es parte de la URL (path param), NO solo del body
 URL_TOKEN   = "https://api-seguridad.sunat.gob.pe/v1/clientessol/{client_id}/oauth2/token/"
 URL_BASE    = "https://api-sire.sunat.gob.pe"
@@ -87,14 +129,14 @@ class SireClient:
         self.timeout       = timeout
         self._cache_key    = f"{client_id}:{ruc}:{usuario}"
 
-    # â”€â”€ Autenticacion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Autenticacion ────────────────────────────────────────────────────────
     def _autenticar(self) -> str:
         """
         Obtiene token OAuth2 (Password flow).
 
-        Referencia: Manual SIRE Ventas v25, secciÃ³n 5.1 Servicio Api Seguridad
+        Referencia: Manual SIRE Ventas v25, sección 5.1 Servicio Api Seguridad
         - URL incluye client_id como path param
-        - username = "{RUC} {USUARIO_SOL}"  â† espacio obligatorio
+        - username = "{RUC} {USUARIO_SOL}"  ← espacio obligatorio
         - password = clave SOL del contribuyente
         - grant_type = "password"
         - scope = "https://api-sire.sunat.gob.pe"
@@ -111,7 +153,7 @@ class SireClient:
         # Ejemplo: "20123456789 MORERA"
         username = f"{self.ruc} {self.usuario}" if self.usuario else self.ruc
 
-        # Log de diagnÃ³stico (sin exponer password)
+        # Log de diagnóstico (sin exponer password)
         logger.info(f"SIRE auth -> URL: {url}")
         logger.info(f"SIRE auth -> username: '{username}' (RUC={self.ruc}, usuario='{self.usuario}')")
         logger.info(f"SIRE auth -> client_id: {self.client_id[:8]}...")
@@ -137,7 +179,7 @@ class SireClient:
                 body = resp.text
                 logger.error(f"SIRE auth fallo HTTP {resp.status_code}: {body}")
 
-                # DiagnÃ³stico especÃ­fico por cÃ³digo
+                # Diagnóstico específico por código
                 if resp.status_code == 400:
                     try:
                         err = resp.json()
@@ -172,7 +214,7 @@ class SireClient:
         except httpx.ConnectError as e:
             raise SIREError(f"Error de conexion a SUNAT: {e}", codigo="CONNECTION_ERROR")
 
-    # â”€â”€ Headers autenticados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Headers autenticados ─────────────────────────────────────────────────
     def _headers(self) -> dict:
         token = self._autenticar()
         return {
@@ -181,7 +223,7 @@ class SireClient:
             "Accept":        "application/json",
         }
 
-    # â”€â”€ Probar conexion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Probar conexion ──────────────────────────────────────────────────────
     def probar_conexion(self) -> dict:
         """Valida credenciales sin descargar datos."""
         TokenCache.limpiar(self._cache_key)
@@ -200,7 +242,7 @@ class SireClient:
                 "detalles": e.detalles,
             }
 
-    # â”€â”€ Periodos habilitados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Periodos habilitados ─────────────────────────────────────────────────
     def obtener_periodos_rvie(self) -> List[dict]:
         """Periodos habilitados para el RVIE (Ventas). codLibro=140000"""
         url = f"{URL_BASE}/v1/contribuyente/migeigv/libros/rvierce/padron/web/omisos/140000/periodos"
@@ -219,7 +261,7 @@ class SireClient:
             raise SIREError(f"Error consultando periodos RCE: HTTP {resp.status_code} - {resp.text}")
         return resp.json()
 
-    # â”€â”€ Solicitar descarga propuesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Solicitar descarga propuesta ─────────────────────────────────────────
     def solicitar_propuesta_rvie(self, anio: int, mes: int) -> str:
         """Solicita descarga del RVIE (Ventas). Retorna ticket."""
         periodo = f"{anio}{str(mes).zfill(2)}"
@@ -248,7 +290,7 @@ class SireClient:
             raise SIREError(f"No se recibio ticket en respuesta RCE: {data}")
         return str(ticket)
 
-    # â”€â”€ Consultar estado del ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Consultar estado del ticket ──────────────────────────────────────────
     def consultar_ticket(self, ticket: str) -> dict:
         """Consulta el estado de un ticket de descarga. Retorna {'estado': ..., 'link': ...}"""
         url = f"{URL_BASE}/v1/contribuyente/migeigv/libros/rvierce/envios/{ticket}/validarEstadoEnvio"
@@ -258,9 +300,9 @@ class SireClient:
             raise SIREError(f"Error consultando ticket {ticket}: HTTP {resp.status_code} - {resp.text}")
         return resp.json()
 
-    # â”€â”€ Esperar y descargar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Esperar y descargar ──────────────────────────────────────────────────
     def esperar_y_descargar(self, ticket: str, max_intentos: int = 20, espera_seg: int = 3) -> bytes:
-        """Espera a que el ticket estÃ© listo y descarga el ZIP."""
+        """Espera a que el ticket esté listo y descarga el ZIP."""
         for intento in range(max_intentos):
             estado = self.consultar_ticket(ticket)
             cod_estado = estado.get("codEstado") or estado.get("estado") or ""
@@ -286,10 +328,10 @@ class SireClient:
 
         raise SIREError(f"Timeout esperando ticket {ticket} despues de {max_intentos} intentos")
 
-    # â”€â”€ Parsear TXT pipe-separated de SUNAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Parsear TXT pipe-separated de SUNAT ─────────────────────────────────
     @staticmethod
     def _parsear_zip_txt(zip_bytes: bytes) -> List[str]:
-        """Extrae lÃ­neas del TXT dentro del ZIP descargado de SUNAT."""
+        """Extrae líneas del TXT dentro del ZIP descargado de SUNAT."""
         lineas = []
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             for nombre in zf.namelist():
@@ -301,7 +343,7 @@ class SireClient:
                                 lineas.append(decoded)
         return lineas
 
-    # â”€â”€ API pÃºblica: descargar RVIE y RCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── API pública: descargar RVIE y RCE ────────────────────────────────────
     def descargar_rvie(self, anio: int, mes: int) -> List[dict]:
         """Descarga y parsea el RVIE (Ventas). Retorna lista de comprobantes."""
         ticket = self.solicitar_propuesta_rvie(anio, mes)
@@ -316,10 +358,10 @@ class SireClient:
         lineas = self._parsear_zip_txt(zip_bytes)
         return [self._parsear_linea_rce(l) for l in lineas if "|" in l]
 
-    # â”€â”€ Parsers de formato pipe-separated â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Parsers de formato pipe-separated ────────────────────────────────────
     @staticmethod
     def _parsear_linea_rvie(linea: str) -> dict:
-        """Parsea una lÃ­nea del RVIE (14 campos pipe-separated)."""
+        """Parsea una línea del RVIE (14 campos pipe-separated)."""
         campos = linea.split("|")
         def d(i, default=""):
             return campos[i].strip() if i < len(campos) else default
@@ -345,7 +387,7 @@ class SireClient:
 
     @staticmethod
     def _parsear_linea_rce(linea: str) -> dict:
-        """Parsea una lÃ­nea del RCE (campos pipe-separated)."""
+        """Parsea una línea del RCE (campos pipe-separated)."""
         campos = linea.split("|")
         def d(i, default=""):
             return campos[i].strip() if i < len(campos) else default
@@ -370,3 +412,38 @@ class SireClient:
             "total":             dec(14),
             "tipo_cambio":       dec(15),
         }
+'@
+
+# Hacer backup del original
+if (Test-Path $clientPath) {
+    Copy-Item $clientPath "$clientPath.bak" -Force
+    Write-Host "  [OK] Backup guardado: $clientPath.bak" -ForegroundColor Green
+}
+
+# Escribir el fix
+$sireClientContent | Set-Content $clientPath -Encoding UTF8
+Write-Host "  [OK] sire_client.py actualizado con fix de autenticacion" -ForegroundColor Green
+
+# ============================================================
+# PASO 3: Actualizar el logging para que muestre el username enviado
+# ============================================================
+Write-Host ""
+Write-Host "=== Fix aplicado exitosamente ===" -ForegroundColor Green
+Write-Host ""
+Write-Host "LO QUE CAMBIA:" -ForegroundColor Cyan
+Write-Host "  1. username ahora es: 'f`"{self.ruc} {self.usuario}`"'  (con espacio entre RUC y usuario)" -ForegroundColor White
+Write-Host "  2. URL del token incluye client_id en el path param (ya estaba bien, reforzado)" -ForegroundColor White
+Write-Host "  3. Logs detallados antes del request para diagnosticar" -ForegroundColor White
+Write-Host "  4. Mensaje de error mas especifico con ACCESS_DENIED" -ForegroundColor White
+Write-Host ""
+Write-Host "PARA VERIFICAR - revisa en los logs uvicorn el mensaje:" -ForegroundColor Yellow
+Write-Host "  SIRE auth -> username: '20123456789 TUUSUARIO'" -ForegroundColor White
+Write-Host "  (si aparece solo el RUC sin usuario o sin espacio = ese era el bug)" -ForegroundColor White
+Write-Host ""
+Write-Host "CREDENCIALES A VERIFICAR EN PORTAL SOL:" -ForegroundColor Yellow
+Write-Host "  Ir a: https://e-menu.sunat.gob.pe" -ForegroundColor White
+Write-Host "  EMPRESAS -> Credenciales de API SUNAT -> Gestion Credenciales de API SUNAT" -ForegroundColor White
+Write-Host "  Copiar exactamente el client_id y client_secret que aparecen ahi" -ForegroundColor White
+Write-Host ""
+Write-Host "Reinicia uvicorn y prueba el endpoint:" -ForegroundColor Yellow
+Write-Host "  POST /api/v1/empresas/{id}/sire/probar-conexion" -ForegroundColor White

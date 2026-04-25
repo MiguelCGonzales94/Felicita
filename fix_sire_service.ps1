@@ -1,9 +1,33 @@
-﻿"""
+# ============================================================
+#  FELICITA - Fix: Actualizar sire_service.py para nuevos métodos
+#  .\fix_sire_service.ps1
+# ============================================================
+
+Write-Host ""
+Write-Host "Fix: Actualizar sire_service.py para usar nuevos métodos de sire_client" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path "backend")) {
+    Write-Host "ERROR: ejecuta desde la raiz 'felicita/'" -ForegroundColor Red
+    exit 1
+}
+
+$servicePath = "backend\app\services\sire_service.py"
+
+# Backup
+if (Test-Path $servicePath) {
+    Copy-Item $servicePath "$servicePath.bak" -Force
+    Write-Host "  [OK] Backup guardado: $servicePath.bak" -ForegroundColor Green
+}
+
+# Contenido nuevo de sire_service.py
+$sireServiceContent = @'
+"""
 Servicio SIRE: wrapper que maneja real vs mock.
 
 Flujo:
 1. Intenta descarga REAL si hay credenciales API SUNAT configuradas
-2. Cae a MOCK automÃ¡ticamente si falla o no hay credenciales
+2. Cae a MOCK automáticamente si falla o no hay credenciales
 3. El campo 'fuente' indica si fue SUNAT_SIRE o MOCK
 """
 import logging
@@ -13,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Empresa, PDT621
 from app.services.sire_client import SireClient, SIREError
-from app.utils.encryption import decrypt_text
+from app.utils.encryption import desencriptar_aes
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +62,10 @@ def obtener_credenciales_sunat(empresa: Empresa) -> Optional[Dict]:
         return None
 
 
-# â”€â”€ RVIE (Ventas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── RVIE (Ventas) ────────────────────────────────────────────────────────
 def descargar_rvie(empresa_ruc: str, ano: int, mes: int, credenciales: Dict) -> Dict:
     """
-    Descarga RVIE (Registro de Ventas ElectrÃ³nico) de SUNAT.
+    Descarga RVIE (Registro de Ventas Electrónico) de SUNAT.
     
     Intenta real primero. Si falla o no hay credenciales, retorna mock.
     """
@@ -142,10 +166,10 @@ def _generar_mock_rvie(empresa_ruc: str, ano: int, mes: int) -> Dict:
     }
 
 
-# â”€â”€ RCE (Compras) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── RCE (Compras) ───────────────────────────────────────────────────────
 def descargar_rce(empresa_ruc: str, ano: int, mes: int, credenciales: Dict) -> Dict:
     """
-    Descarga RCE (Registro de Compras ElectrÃ³nico) de SUNAT.
+    Descarga RCE (Registro de Compras Electrónico) de SUNAT.
     
     Intenta real primero. Si falla o no hay credenciales, retorna mock.
     """
@@ -231,3 +255,19 @@ def _generar_mock_rce(empresa_ruc: str, ano: int, mes: int) -> Dict:
             },
         ],
     }
+'@
+
+$sireServiceContent | Set-Content $servicePath -Encoding UTF8
+Write-Host "  [OK] sire_service.py actualizado con métodos correctos" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "=== Fix aplicado ===" -ForegroundColor Green
+Write-Host ""
+Write-Host "CAMBIOS:" -ForegroundColor Yellow
+Write-Host "  1. _descargar_rvie_real() ahora usa: client.descargar_rvie(ano, mes)" -ForegroundColor White
+Write-Host "  2. _descargar_rce_real() ahora usa: client.descargar_rce(ano, mes)" -ForegroundColor White
+Write-Host "  3. Los métodos nuevos hacen: solicitar + esperar + descargar + parsear" -ForegroundColor White
+Write-Host "  4. Fallback automático a MOCK si hay error" -ForegroundColor White
+Write-Host ""
+Write-Host "Reinicia uvicorn y vuelve a probar:" -ForegroundColor Yellow
+Write-Host "  POST /api/v1/pdt621/21/importar-sunat" -ForegroundColor White

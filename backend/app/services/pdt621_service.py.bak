@@ -1,4 +1,4 @@
-﻿"""
+"""
 Servicio de PDT 621 - Logica de negocio.
 Persiste los comprobantes importados y recalcula usando solo los incluidos.
 """
@@ -88,7 +88,7 @@ def importar_desde_sire(db: Session, pdt: PDT621, empresa: Empresa) -> dict:
     db.commit()
 
     # Insertar ventas
-    for c in rvie["comprobantes"]:
+    for c in rvie.comprobantes:
         db.add(PDT621VentaDetalle(
             pdt621_id=pdt.id,
             tipo_comprobante=c.tipo_comprobante,
@@ -103,11 +103,11 @@ def importar_desde_sire(db: Session, pdt: PDT621, empresa: Empresa) -> dict:
             igv=c.igv,
             total=c.total,
             incluido=True,
-            fuente=rvie["fuente"],
+            fuente=rvie.fuente,
         ))
 
     # Insertar compras
-    for c in rce["comprobantes"]:
+    for c in rce.comprobantes:
         db.add(PDT621CompraDetalle(
             pdt621_id=pdt.id,
             tipo_comprobante=c.tipo_comprobante,
@@ -122,7 +122,7 @@ def importar_desde_sire(db: Session, pdt: PDT621, empresa: Empresa) -> dict:
             total=c.total,
             tipo_destino="GRAVADA_EXCLUSIVA",
             incluido=True,
-            fuente=rce["fuente"],
+            fuente=rce.fuente,
         ))
 
     db.commit()
@@ -132,7 +132,7 @@ def importar_desde_sire(db: Session, pdt: PDT621, empresa: Empresa) -> dict:
     db.refresh(pdt)
 
     return {
-        "fuente": rvie["fuente"],
+        "fuente": rvie.fuente,
         "ventas": {
             "total_comprobantes": rvie.total_comprobantes,
             "ventas_gravadas": float(rvie.total_ventas_gravadas),
@@ -367,4 +367,3 @@ def cambiar_estado(
     db.commit()
     db.refresh(pdt)
     return pdt
-
