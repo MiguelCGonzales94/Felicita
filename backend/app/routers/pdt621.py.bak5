@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, case
 from typing import Optional
@@ -66,7 +66,7 @@ def pdt_list_item(pdt: PDT621, empresa: Empresa) -> dict:
     }
 
 
-# â”€â”€ Listar PDTs (consolidado) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Listar PDTs (consolidado) ──────────────────────────
 @router.get("/pdt621")
 def listar_pdts(
     db: Session = Depends(get_db),
@@ -98,7 +98,7 @@ def listar_pdts(
     return {"total": len(items), "pdts": items}
 
 
-# â”€â”€ Listar PDTs de una empresa â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Listar PDTs de una empresa ─────────────────────────
 @router.get("/empresas/{empresa_id}/pdt621")
 def listar_pdts_empresa(
     empresa_id: int,
@@ -119,7 +119,7 @@ def listar_pdts_empresa(
     }
 
 
-# â”€â”€ Buscar PDT por periodo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Buscar PDT por periodo ─────────────────────────────
 @router.get("/empresas/{empresa_id}/pdt621/periodo/{ano}/{mes}", response_model=PDT621Response)
 def obtener_pdt_por_periodo(
     empresa_id: int, ano: int, mes: int,
@@ -133,7 +133,7 @@ def obtener_pdt_por_periodo(
     return pdt
 
 
-# â”€â”€ Generar PDT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Generar PDT ────────────────────────────────────────
 @router.post("/empresas/{empresa_id}/pdt621/generar", response_model=PDT621Response)
 def generar_pdt(
     empresa_id: int,
@@ -148,7 +148,7 @@ def generar_pdt(
     return pdt
 
 
-# â”€â”€ Obtener PDT por ID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Obtener PDT por ID ─────────────────────────────────
 @router.get("/pdt621/{pdt_id}", response_model=PDT621Response)
 def obtener_pdt(
     pdt_id: int,
@@ -159,7 +159,7 @@ def obtener_pdt(
     return pdt
 
 
-# â”€â”€ Importar desde SUNAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Importar desde SUNAT ───────────────────────────────
 @router.post("/pdt621/{pdt_id}/importar-sunat")
 def importar_sunat(
     pdt_id: int,
@@ -177,7 +177,7 @@ def importar_sunat(
     return resumen
 
 
-# â”€â”€ Probar conexion SIRE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Probar conexion SIRE ───────────────────────────────
 @router.post("/empresas/{empresa_id}/sire/probar-conexion")
 def probar_conexion_sire(
     empresa_id: int,
@@ -217,7 +217,7 @@ def probar_conexion_sire(
         }
 
 
-# â”€â”€ Sugerir saldo a favor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sugerir saldo a favor ──────────────────────────────
 @router.get("/empresas/{empresa_id}/pdt621/saldo-favor/{ano}/{mes}")
 def sugerir_saldo_favor(
     empresa_id: int, ano: int, mes: int,
@@ -233,7 +233,7 @@ def sugerir_saldo_favor(
     }
 
 
-# â”€â”€ Aplicar ajustes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Aplicar ajustes ────────────────────────────────────
 @router.put("/pdt621/{pdt_id}/ajustes")
 def aplicar_ajustes_pdt(
     pdt_id: int,
@@ -250,7 +250,7 @@ def aplicar_ajustes_pdt(
     return aplicar_ajustes(db, pdt, empresa, ajustes.model_dump())
 
 
-# â”€â”€ Recalcular â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Recalcular ─────────────────────────────────────────
 @router.post("/pdt621/{pdt_id}/recalcular", response_model=PDT621Response)
 def recalcular(
     pdt_id: int,
@@ -261,7 +261,7 @@ def recalcular(
     return recalcular_pdt(db, pdt, empresa)
 
 
-# â”€â”€ Cambiar estado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Cambiar estado ─────────────────────────────────────
 @router.post("/pdt621/{pdt_id}/cambiar-estado", response_model=PDT621Response)
 def cambiar_estado_pdt(
     pdt_id: int,
@@ -273,9 +273,9 @@ def cambiar_estado_pdt(
     return cambiar_estado(db, pdt, payload.nuevo_estado, payload.numero_operacion, payload.mensaje)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 # DETALLE DE COMPROBANTES (nuevos endpoints)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 
 def _build_detalle_ventas_response(
     comprobantes: list, fuente_principal: str
@@ -373,9 +373,9 @@ def aplicar_seleccion_compras_endpoint(
     return aplicar_seleccion_compras(db, pdt, empresa, selecciones)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# ELIMINAR PDT (borrador o documento declarado con confirmaciÃ³n)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
+# ELIMINAR PDT (borrador o documento declarado con confirmación)
+# ════════════════════════════════════════════════════════════
 
 @router.delete("/pdt621/{pdt_id}", status_code=204)
 def eliminar_pdt(
@@ -386,12 +386,12 @@ def eliminar_pdt(
     """
     Elimina un PDT.
     - DRAFT: Siempre se puede eliminar.
-    - ACCEPTED/REJECTED: Se puede eliminar con confirmaciÃ³n del contador.
+    - ACCEPTED/REJECTED: Se puede eliminar con confirmación del contador.
     - SUBMITTED/GENERATED: No se puede eliminar directamente.
     """
     pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
 
-    # Solo se puede eliminar si estÃ¡ en DRAFT, ACCEPTED o REJECTED
+    # Solo se puede eliminar si está en DRAFT, ACCEPTED o REJECTED
     if pdt.estado in ("SUBMITTED", "GENERATED"):
         raise HTTPException(
             status_code=400,
@@ -408,9 +408,9 @@ def eliminar_pdt(
     )
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 # AGREGAR COMPROBANTES MANUALMENTE
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 
 @router.post("/pdt621/{pdt_id}/comprobantes/ventas")
 def agregar_venta_manual(
@@ -453,7 +453,7 @@ def agregar_venta_manual(
     db.add(nuevo)
     db.commit()
 
-    # Recalcular el PDT despuÃ©s de agregar
+    # Recalcular el PDT después de agregar
     from app.services.pdt621_calculo_service import recalcular_totales_pdt
     recalcular_totales_pdt(db, pdt, empresa)
 
@@ -505,9 +505,9 @@ def agregar_compra_manual(
     return {"mensaje": "Compra agregada correctamente", "id": nuevo.id}
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 # DESCARGAR PDT MENSUAL
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ════════════════════════════════════════════════════════════
 
 @router.get("/pdt621/{pdt_id}/descargar")
 def descargar_pdt(
@@ -535,7 +535,7 @@ def descargar_pdt(
 def generar_txt_pdt621(pdt: PDT621, empresa: Empresa) -> str:
     """
     Genera el contenido TXT del PDT 621 para presentar a SUNAT.
-    Formato segÃºn estructura PDT 621 oficial.
+    Formato según estructura PDT 621 oficial.
     """
     lines = []
     lines.append(f"# PDT 621 - {empresa.razon_social} (RUC: {empresa.ruc})")
@@ -581,7 +581,6 @@ def generar_txt_pdt621(pdt: PDT621, empresa: Empresa) -> str:
     return "\n".join(lines)
 
 
-
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # DEBUG: Ver exactamente que se enviaria a SUNAT
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -595,7 +594,7 @@ def debug_sire_credenciales(
     Endpoint de diagnostico: muestra exactamente que se enviaria a SUNAT.
     No expone la password ni el client_secret completos.
     """
-    from app.services.empresa_service import obtener_credenciales_sunat
+    from app.services.sire_service import obtener_credenciales_sunat
     from app.models.models import Empresa
 
     empresa = db.query(Empresa).filter_by(id=empresa_id).first()
@@ -603,73 +602,92 @@ def debug_sire_credenciales(
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
 
     cred = obtener_credenciales_sunat(empresa)
-    ruc = empresa.ruc
-    usuario = cred.get("usuario", "") or ""
-    clave_sol = cred.get("clave_sol", "") or ""
-    client_id = cred.get("client_id", "") or ""
-    client_secret = cred.get("client_secret", "") or ""
-    tipo_acceso = cred.get("tipo_acceso", "RUC")
-    dni = cred.get("dni", "") or ""
 
+    if not cred:
+        return {
+            "configurado": False,
+            "mensaje": "La empresa no tiene credenciales API SUNAT configuradas",
+            "campos_requeridos": [
+                "sunat_client_id",
+                "sunat_client_secret",
+                "usuario_sol",
+                "clave_sol (en cada request)",
+            ],
+        }
+
+    # Construir el username como lo hara el cliente
+    ruc = empresa.ruc
+    usuario = cred.get("usuario_sol", "") or ""
     username_final = f"{ruc} {usuario}" if usuario else ruc
+
+    # Mascarar valores sensibles
+    client_id = cred.get("client_id", "")
+    client_secret = cred.get("client_secret", "")
+    clave_sol = cred.get("clave_sol", "")
 
     def mask(valor, mostrar_inicio=4, mostrar_final=4):
         if not valor or len(valor) < 8:
-            return "VACIO" if not valor else "***"
+            return "***"
         return f"{valor[:mostrar_inicio]}...{valor[-mostrar_final:]} (len={len(valor)})"
 
-    problemas = []
-    if not usuario:
-        problemas.append("CRITICO: usuario_sol esta vacio. Configurar en datos de empresa.")
-    if not clave_sol:
-        problemas.append("CRITICO: clave_sol vacia o no se desencripta correctamente.")
-    if not client_id:
-        problemas.append("CRITICO: sunat_client_id vacio. Generar en Portal SOL > Credenciales API SUNAT.")
-    if not client_secret:
-        problemas.append("CRITICO: sunat_client_secret vacio o no se desencripta.")
-    if usuario and ruc in usuario:
-        problemas.append("WARN: usuario_sol contiene el RUC. Usar solo el nombre del usuario secundario (ej: 'MIGUEL01').")
-    if usuario and len(usuario) < 3:
-        problemas.append("WARN: usuario_sol parece muy corto.")
-    if usuario and " " in usuario:
-        problemas.append("WARN: usuario_sol tiene espacios. Debe ser una sola palabra.")
-    if not problemas:
-        problemas = ["Todos los campos parecen estar bien. Si SUNAT da access_denied es problema de credenciales en Portal SOL."]
-
     return {
+        "configurado": True,
         "empresa": {
             "id": empresa.id,
             "ruc": empresa.ruc,
             "razon_social": empresa.razon_social,
-            "tipo_acceso_sol": tipo_acceso,
         },
-        "credenciales_desencriptadas": {
+        "credenciales_origen": {
+            "sunat_client_id": mask(client_id),
+            "sunat_client_secret": mask(client_secret) if client_secret else "VACIO",
             "usuario_sol": usuario or "VACIO",
-            "clave_sol": mask(clave_sol),
-            "client_id": mask(client_id),
-            "client_secret": mask(client_secret),
-            "dni_sol": dni or "VACIO",
+            "clave_sol_enviada": mask(clave_sol) if clave_sol else "VACIO o no se paso",
         },
-        "request_que_se_enviaria_a_sunat": {
-            "url": f"https://api-seguridad.sunat.gob.pe/v1/clientessol/{client_id[:8] if client_id else 'VACIO'}.../oauth2/token/",
+        "request_que_se_enviaria": {
+            "url": f"https://api-seguridad.sunat.gob.pe/v1/clientessol/{client_id[:8]}.../oauth2/token/",
             "method": "POST",
-            "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+            "content_type": "application/x-www-form-urlencoded",
             "body": {
                 "grant_type": "password",
                 "scope": "https://api-sire.sunat.gob.pe",
                 "client_id": mask(client_id),
-                "client_secret": mask(client_secret),
+                "client_secret": mask(client_secret) if client_secret else "VACIO",
                 "username": username_final,
-                "password": mask(clave_sol),
+                "password": mask(clave_sol) if clave_sol else "VACIO",
             },
         },
         "validaciones": {
-            "ruc_valido": len(ruc) == 11 and ruc.isdigit(),
-            "tiene_usuario": bool(usuario),
+            "ruc_es_valido": len(ruc) == 11 and ruc.isdigit(),
+            "tiene_usuario_sol": bool(usuario),
             "tiene_clave_sol": bool(clave_sol),
             "tiene_client_id": bool(client_id),
             "tiene_client_secret": bool(client_secret),
-            "username_tiene_espacio": " " in username_final if usuario else False,
+            "username_format_correcto": " " in username_final if usuario else False,
         },
-        "diagnostico": problemas,
+        "diagnostico": _diagnosticar(ruc, usuario, clave_sol, client_id, client_secret),
     }
+
+
+def _diagnosticar(ruc, usuario, clave_sol, client_id, client_secret):
+    """Genera mensajes de diagnostico segun los campos."""
+    problemas = []
+
+    if not usuario:
+        problemas.append("CRITICO: usuario_sol esta vacio. Configurar en empresa.")
+    if not clave_sol:
+        problemas.append("CRITICO: clave_sol no llega al backend. Revisar como se envia desde frontend.")
+    if not client_id:
+        problemas.append("CRITICO: sunat_client_id vacio. Generar en Portal SOL.")
+    if not client_secret:
+        problemas.append("CRITICO: sunat_client_secret vacio o no se desencripta.")
+
+    if usuario and len(usuario) < 3:
+        problemas.append("WARN: usuario_sol parece muy corto. Confirmar valor.")
+    if usuario and ruc in usuario:
+        problemas.append("WARN: usuario_sol contiene el RUC. Debe ser solo el nombre del usuario secundario.")
+    if clave_sol and len(clave_sol) < 6:
+        problemas.append("WARN: clave_sol parece muy corta.")
+
+    if not problemas:
+        return ["Todos los campos parecen estar bien. El access_denied seria por credenciales incorrectas en SOL."]
+    return problemas

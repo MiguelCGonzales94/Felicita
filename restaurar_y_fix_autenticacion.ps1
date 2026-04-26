@@ -1,4 +1,70 @@
-﻿"""
+# ============================================================
+#  FELICITA - Restaurar TODO al estado original + fix autenticacion
+#  .\restaurar_y_fix_autenticacion.ps1
+#
+#  Estrategia: el codigo original ya estaba bien diseñado con
+#  objetos Pydantic. El UNICO problema era el formato del
+#  username en sire_client.py
+#
+#  Este script:
+#  1. Restaura sire_service.py desde el .bak (version original con objetos)
+#  2. Restaura pdt621_service.py desde el .bak (version original)
+#  3. Sobreescribe sire_client.py con la version arreglada que mantiene
+#     los nombres antiguos (descargar_propuesta_rvie / descargar_propuesta_rce)
+# ============================================================
+
+Write-Host ""
+Write-Host "Restaurando estado original y aplicando solo fix de autenticacion" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path "backend")) {
+    Write-Host "ERROR: ejecuta desde la raiz del proyecto" -ForegroundColor Red
+    exit 1
+}
+
+# ============================================================
+# 1. Restaurar sire_service.py desde backup original
+# ============================================================
+$sirePath = "backend\app\services\sire_service.py"
+$bakOriginal = "backend\app\services\sire_service.py.bak"
+
+if (Test-Path $bakOriginal) {
+    Copy-Item $bakOriginal $sirePath -Force
+    Write-Host "[OK] sire_service.py restaurado desde .bak (version con objetos Pydantic)" -ForegroundColor Green
+} else {
+    Write-Host "[WARN] No se encontro $bakOriginal - omitiendo restauracion" -ForegroundColor Yellow
+}
+
+# ============================================================
+# 2. Restaurar pdt621_service.py desde backup original
+# ============================================================
+$pdtPath = "backend\app\services\pdt621_service.py"
+$bakPdt = "backend\app\services\pdt621_service.py.bak"
+
+if (Test-Path $bakPdt) {
+    Copy-Item $bakPdt $pdtPath -Force
+    Write-Host "[OK] pdt621_service.py restaurado desde .bak" -ForegroundColor Green
+} else {
+    Write-Host "[WARN] No se encontro $bakPdt - omitiendo restauracion" -ForegroundColor Yellow
+}
+
+# ============================================================
+# 3. Sobreescribir sire_client.py con version corregida
+#    (mantiene nombres viejos: descargar_propuesta_rvie/rce)
+# ============================================================
+Write-Host ""
+Write-Host "Aplicando fix de autenticacion al sire_client.py..." -ForegroundColor Yellow
+
+$clientPath = "backend\app\services\sire_client.py"
+Copy-Item $clientPath "$clientPath.bak4" -Force -ErrorAction SilentlyContinue
+
+# Escribir contenido nuevo en archivo temporal de Python
+$tempFile = New-TemporaryFile
+$tempPyFile = "$($tempFile.FullName).py"
+Move-Item $tempFile.FullName $tempPyFile
+
+@"
+"""
 Cliente oficial SUNAT SIRE.
 Implementado segun Manual de Servicios Web API SIRE Ventas v25 / Compras v22.
 
@@ -128,7 +194,7 @@ class SireClient:
             "Accept":        "application/json",
         }
 
-    # â”€â”€ API publica con NOMBRES LEGACY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── API publica con NOMBRES LEGACY ────────────────────────────────
     def descargar_propuesta_rvie(self, periodo):
         """
         Descarga RVIE (Ventas) para un periodo "AAAAMM".
@@ -147,7 +213,7 @@ class SireClient:
         mes = int(periodo[4:])
         return self._descargar_y_parsear(ano, mes, "rce")
 
-    # â”€â”€ Implementacion interna â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Implementacion interna ────────────────────────────────────────
     def _descargar_y_parsear(self, ano, mes, tipo):
         ticket = self._solicitar_ticket(ano, mes, tipo)
         zip_bytes = self._esperar_y_descargar_zip(ticket)
@@ -287,3 +353,43 @@ class SireClient:
             return {"estado": "OK", "mensaje": "Conexion exitosa", "token_len": len(token)}
         except SIREError as e:
             return {"estado": "ERROR", "mensaje": str(e), "codigo": e.codigo, "detalles": e.detalles}
+"@ | Set-Content $tempPyFile -Encoding UTF8
+
+# Mover archivo al destino
+Move-Item $tempPyFile $clientPath -Force
+Write-Host "[OK] sire_client.py actualizado con fix de autenticacion + nombres legacy" -ForegroundColor Green
+
+# ============================================================
+# 4. Verificar import en sire_service.py - debe ser decrypt_text
+# ============================================================
+Write-Host ""
+Write-Host "Verificando import en sire_service.py..." -ForegroundColor Yellow
+$sireContent = Get-Content $sirePath -Raw
+if ($sireContent -match "from app\.utils\.encryption import desencriptar_aes") {
+    $sireContent = $sireContent -replace 'from app\.utils\.encryption import desencriptar_aes', 'from app.utils.encryption import decrypt_text'
+    $sireContent = $sireContent -replace 'desencriptar_aes\(', 'decrypt_text('
+    Set-Content $sirePath $sireContent -Encoding UTF8
+    Write-Host "[OK] Import corregido" -ForegroundColor Green
+} elseif ($sireContent -match "from app\.utils\.encryption") {
+    Write-Host "[OK] Import ya esta correcto" -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "===========================================" -ForegroundColor Green
+Write-Host "  Restauracion completada exitosamente" -ForegroundColor Green
+Write-Host "===========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "RESUMEN:" -ForegroundColor Cyan
+Write-Host "  1. sire_service.py    - restaurado al original (objetos Pydantic)" -ForegroundColor White
+Write-Host "  2. pdt621_service.py  - restaurado al original" -ForegroundColor White
+Write-Host "  3. sire_client.py     - actualizado con fix de autenticacion" -ForegroundColor White
+Write-Host "                          y nombres de metodos legacy" -ForegroundColor White
+Write-Host ""
+Write-Host "Uvicorn con --reload detecta los cambios solo." -ForegroundColor Yellow
+Write-Host "Si no, reinicia con Ctrl+C y python -m uvicorn app.main:app --reload" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Prueba el endpoint:" -ForegroundColor Yellow
+Write-Host "  POST /api/v1/pdt621/21/importar-sunat" -ForegroundColor White
+Write-Host ""
+Write-Host "Respuesta esperada (con MOCK):" -ForegroundColor Gray
+Write-Host "  fuente: MOCK, total_comprobantes: 12-22 ventas y compras" -ForegroundColor Gray

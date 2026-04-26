@@ -1,4 +1,4 @@
-﻿"""
+"""
 Servicio de PDT 621 - Logica de negocio.
 Persiste los comprobantes importados y recalcula usando solo los incluidos.
 """
@@ -72,97 +72,81 @@ def _fecha_from_str(fecha_str: str) -> date:
     return datetime.strptime(fecha_str, "%Y-%m-%d").date()
 
 
-def importar_desde_sire(db, pdt, empresa):
+def importar_desde_sire(db: Session, pdt: PDT621, empresa: Empresa) -> dict:
     """
-    Descarga RVIE y RCE de SUNAT (o mock) y actualiza el PDT 621.
-    Los comprobantes llegan como lista de dicts con claves snake_case.
+    Descarga RVIE/RCE de SUNAT (real o mock), persiste los comprobantes
+    en pdt621_ventas_detalle y pdt621_compras_detalle, y recalcula el PDT
+    usando solo los incluidos (todos incluidos por defecto al importar).
     """
-    from app.services.sire_service import (
-        descargar_rvie, descargar_rce, obtener_credenciales_sunat
-    )
-    from app.services.pdt621_calculo_service import recalcular_pdt
-    from app.models.models import PDT621Detalle
- 
     credenciales = obtener_credenciales_sunat(empresa)
- 
     rvie = descargar_rvie(empresa.ruc, pdt.ano, pdt.mes, credenciales)
-    rce  = descargar_rce(empresa.ruc,  pdt.ano, pdt.mes, credenciales)
- 
-    # Calcular totales desde los dicts
-    ventas_base  = sum(c.get("base_imponible", 0) for c in rvie["comprobantes"])
-    ventas_igv   = sum(c.get("igv", 0)            for c in rvie["comprobantes"])
-    ventas_total = sum(c.get("total", 0)          for c in rvie["comprobantes"])
- 
-    compras_base  = sum(c.get("base_imponible", 0) for c in rce["comprobantes"])
-    compras_igv   = sum(c.get("igv", 0)            for c in rce["comprobantes"])
-    compras_total = sum(c.get("total", 0)          for c in rce["comprobantes"])
- 
-    # Limpiar detalles anteriores
-    db.query(PDT621Detalle).filter(PDT621Detalle.pdt621_id == pdt.id).delete()
- 
-    # Guardar detalle de ventas
-    for c in rvie["comprobantes"]:
-        detalle = PDT621Detalle(
-            pdt621_id        = pdt.id,
-            tipo_registro    = "VENTA",
-            tipo_comprobante = c.get("tipo_cp", ""),
-            serie            = c.get("serie", ""),
-            numero           = c.get("numero", ""),
-            fecha_emision    = c.get("fecha_emision", ""),
-            ruc_cliente      = c.get("num_doc_cliente", ""),
-            razon_social     = c.get("razon_social", ""),
-            base_imponible   = c.get("base_imponible", 0),
-            igv              = c.get("igv", 0),
-            total            = c.get("total", 0),
-        )
-        db.add(detalle)
- 
-    # Guardar detalle de compras
-    for c in rce["comprobantes"]:
-        detalle = PDT621Detalle(
-            pdt621_id        = pdt.id,
-            tipo_registro    = "COMPRA",
-            tipo_comprobante = c.get("tipo_cp", ""),
-            serie            = c.get("serie", ""),
-            numero           = c.get("numero", ""),
-            fecha_emision    = c.get("fecha_emision", ""),
-            ruc_cliente      = c.get("num_doc_proveedor", ""),
-            razon_social     = c.get("razon_social", ""),
-            base_imponible   = c.get("base_imponible", 0),
-            igv              = c.get("igv", 0),
-            total            = c.get("total", 0),
-        )
-        db.add(detalle)
- 
-    # Actualizar cabecera del PDT
-    pdt.ventas_base_imponible  = float(ventas_base)
-    pdt.ventas_igv             = float(ventas_igv)
-    pdt.compras_base_imponible = float(compras_base)
-    pdt.compras_igv            = float(compras_igv)
-    pdt.fuente_datos           = rvie["fuente"]
- 
+    rce = descargar_rce(empresa.ruc, pdt.ano, pdt.mes, credenciales)
+
+    # Borrar detalles existentes antes de reimportar
+    db.query(PDT621VentaDetalle).filter_by(pdt621_id=pdt.id).delete()
+    db.query(PDT621CompraDetalle).filter_by(pdt621_id=pdt.id).delete()
     db.commit()
+
+    # Insertar ventas
+    for c in rvie.comprobantes:
+        db.add(PDT621VentaDetalle(
+            pdt621_id=pdt.id,
+            tipo_comprobante=c.tipo_comprobante,
+            serie=c.serie,
+            numero=c.numero,
+            fecha_emision=_fecha_from_str(c.fecha_emision),
+            ruc_cliente=c.ruc_contraparte,
+            razon_social_cliente=c.nombre_contraparte,
+            base_gravada=c.base_gravada,
+            base_no_gravada=c.base_no_gravada,
+            exportacion=c.exportacion,
+            igv=c.igv,
+            total=c.total,
+            incluido=True,
+            fuente=rvie.fuente,
+        ))
+
+    # Insertar compras
+    for c in rce.comprobantes:
+        db.add(PDT621CompraDetalle(
+            pdt621_id=pdt.id,
+            tipo_comprobante=c.tipo_comprobante,
+            serie=c.serie,
+            numero=c.numero,
+            fecha_emision=_fecha_from_str(c.fecha_emision),
+            ruc_proveedor=c.ruc_contraparte,
+            razon_social_proveedor=c.nombre_contraparte,
+            base_gravada=c.base_gravada,
+            base_no_gravada=c.base_no_gravada,
+            igv=c.igv,
+            total=c.total,
+            tipo_destino="GRAVADA_EXCLUSIVA",
+            incluido=True,
+            fuente=rce.fuente,
+        ))
+
+    db.commit()
+
+    # Recalcular PDT con los comprobantes recien insertados (todos incluidos)
+    recalcular_desde_detalle(db, pdt, empresa)
     db.refresh(pdt)
- 
-    # Recalcular impuestos con los nuevos totales
-    recalcular_pdt(db, pdt)
- 
+
     return {
-        "ok":     True,
-        "fuente": rvie["fuente"],
+        "fuente": rvie.fuente,
         "ventas": {
-            "cantidad":       rvie["cantidad"],
-            "base_imponible": float(ventas_base),
-            "igv":            float(ventas_igv),
-            "total":          float(ventas_total),
+            "total_comprobantes": rvie.total_comprobantes,
+            "ventas_gravadas": float(rvie.total_ventas_gravadas),
+            "ventas_no_gravadas": float(rvie.total_ventas_no_gravadas),
+            "exportaciones": float(rvie.total_exportaciones),
+            "igv_debito": float(rvie.total_igv_debito),
         },
         "compras": {
-            "cantidad":       rce["cantidad"],
-            "base_imponible": float(compras_base),
-            "igv":            float(compras_igv),
-            "total":          float(compras_total),
+            "total_comprobantes": rce.total_comprobantes,
+            "compras_gravadas": float(rce.total_compras_gravadas),
+            "igv_credito": float(rce.total_igv_credito),
         },
     }
+
 
 def _totales_ventas_incluidas(db: Session, pdt_id: int) -> dict:
     """Suma los comprobantes de venta marcados como incluidos."""
@@ -383,4 +367,3 @@ def cambiar_estado(
     db.commit()
     db.refresh(pdt)
     return pdt
-

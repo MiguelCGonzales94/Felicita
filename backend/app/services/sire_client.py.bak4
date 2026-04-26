@@ -81,8 +81,8 @@ class SireClient:
         # CRITICO: username = "{RUC} {USUARIO}" con espacio
         username = f"{self.ruc} {self.usuario}" if self.usuario else self.ruc
 
-        logger.info(f"SIRE auth -> URL: {url}")
-        logger.info(f"SIRE auth -> username: '{username}' (RUC={self.ruc}, usuario='{self.usuario}')")
+        logger.warning(f"SIRE auth -> URL: {url}")
+        logger.warning(f"SIRE auth -> username: '{username}' (RUC={self.ruc}, usuario='{self.usuario}')")
 
         payload = {
             "grant_type":    GRANT_TYPE,
@@ -113,7 +113,7 @@ class SireClient:
                 raise SIREError(f"Token no encontrado en respuesta: {data}")
             expires_in = data.get("expires_in", 3600)
             TokenCache.guardar(self._cache_key, token, expires_in)
-            logger.info("SIRE auth OK")
+            logger.warning("SIRE auth OK")
             return token
         except httpx.TimeoutException:
             raise SIREError("Timeout conectando a SUNAT", codigo="TIMEOUT")
@@ -287,3 +287,4 @@ class SireClient:
             return {"estado": "OK", "mensaje": "Conexion exitosa", "token_len": len(token)}
         except SIREError as e:
             return {"estado": "ERROR", "mensaje": str(e), "codigo": e.codigo, "detalles": e.detalles}
+
