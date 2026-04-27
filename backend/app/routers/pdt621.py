@@ -177,6 +177,125 @@ def importar_sunat(
     return resumen
 
 
+# ─ Importar SOLO VENTAS desde SUNAT ─────────────────────────────────────────────
+@router.post("/pdt621/{pdt_id}/importar-ventas")
+def importar_ventas_sunat(
+    pdt_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """
+    Descarga SOLO el Registro de Ventas (RVIE) desde SUNAT.
+    Timeout: 45 segundos para evitar timeout de nginx.
+    """
+    from app.services.sire_service import descargar_rvie
+    from app.services.pdt621_service import recalcular_desde_detalle
+
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+    if pdt.estado in ("SUBMITTED", "ACCEPTED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede importar: el PDT esta en estado {pdt.estado}",
+        )
+
+    credenciales = obtener_credenciales_sunat(empresa)
+    rvie = descargar_rvie(empresa.ruc, pdt.ano, pdt.mes, credenciales, timeout_segundos=45)
+
+    db.query(PDT621VentaDetalle).filter_by(pdt621_id=pdt.id).delete()
+    db.commit()
+
+    for c in rvie.comprobantes:
+        db.add(PDT621VentaDetalle(
+            pdt621_id=pdt.id,
+            tipo_comprobante=c.tipo_comprobante,
+            serie=c.serie,
+            numero=c.numero,
+            fecha_emision=c.fecha_emision,
+            ruc_cliente=c.ruc_contraparte,
+            razon_social_cliente=c.nombre_contraparte,
+            base_gravada=c.base_gravada,
+            base_no_gravada=c.base_no_gravada,
+            exportacion=c.exportacion,
+            igv=c.igv,
+            total=c.total,
+            incluido=True,
+            fuente=rvie.fuente,
+        ))
+    db.commit()
+
+    recalcular_desde_detalle(db, pdt, empresa)
+    db.refresh(pdt)
+
+    return {
+        "tipo": "ventas",
+        "fuente": rvie.fuente,
+        "total_comprobantes": rvie.total_comprobantes,
+        "ventas_gravadas": float(rvie.total_ventas_gravadas),
+        "igv_debito": float(rvie.total_igv_debito),
+        "total": float(rvie.total_general),
+    }
+
+
+# ─ Importar SOLO COMPRAS desde SUNAT ────────────────────────────────────────────
+@router.post("/pdt621/{pdt_id}/importar-compras")
+def importar_compras_sunat(
+    pdt_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_contador),
+):
+    """
+    Descarga SOLO el Registro de Compras (RCE) desde SUNAT.
+    Timeout: 45 segundos para evitar timeout de nginx.
+    """
+    from app.services.sire_service import descargar_rce
+    from app.services.pdt621_service import recalcular_desde_detalle
+
+    pdt, empresa = get_pdt_or_404(pdt_id, current_user, db)
+    if pdt.estado in ("SUBMITTED", "ACCEPTED"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede importar: el PDT esta en estado {pdt.estado}",
+        )
+
+    credenciales = obtener_credenciales_sunat(empresa)
+    rce = descargar_rce(empresa.ruc, pdt.ano, pdt.mes, credenciales, timeout_segundos=45)
+
+    db.query(PDT621CompraDetalle).filter_by(pdt621_id=pdt.id).delete()
+    db.commit()
+
+    for c in rce.comprobantes:
+        db.add(PDT621CompraDetalle(
+            pdt621_id=pdt.id,
+            tipo_comprobante=c.tipo_comprobante,
+            serie=c.serie,
+            numero=c.numero,
+            fecha_emision=c.fecha_emision,
+            ruc_proveedor=c.ruc_contraparte,
+            razon_social_proveedor=c.nombre_contraparte,
+            base_gravada=c.base_gravada,
+            base_no_gravada=c.base_no_gravada,
+            igv=c.igv,
+            total=c.total,
+            tipo_destino="GRAVADA_EXCLUSIVA",
+            incluido=True,
+            fuente=rce.fuente,
+        ))
+    db.commit()
+
+    recalcular_desde_detalle(db, pdt, empresa)
+    db.refresh(pdt)
+
+    return {
+        "tipo": "compras",
+        "fuente": rce.fuente,
+        "total_comprobantes": rce.total_comprobantes,
+        "compras_gravadas": float(rce.total_compras_gravadas),
+        "igv_credito": float(rce.total_igv_credito),
+        "total": float(rce.total_general),
+    }
+
+
+
 # â”€â”€ Probar conexion SIRE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @router.post("/empresas/{empresa_id}/sire/probar-conexion")
 def probar_conexion_sire(
@@ -611,7 +730,8 @@ def debug_sire_credenciales(
     tipo_acceso = cred.get("tipo_acceso", "RUC")
     dni = cred.get("dni", "") or ""
 
-    username_final = f"{ruc} {usuario}" if usuario else ruc
+    # Formato correcto validado: SIN espacio (igual que en sire_client.py)
+    username_final = f"{ruc}{usuario}" if usuario else ruc
 
     def mask(valor, mostrar_inicio=4, mostrar_final=4):
         if not valor or len(valor) < 8:

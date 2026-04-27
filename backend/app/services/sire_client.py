@@ -75,7 +75,7 @@ class SireClient:
         ruc: str,
         usuario: str,
         clave_sol: str,
-        timeout: int = 60,
+        timeout: int = 180,
     ):
         if not all([client_id, client_secret, ruc, clave_sol]):
             raise SIREError("Credenciales incompletas para SIRE")
@@ -102,8 +102,9 @@ class SireClient:
 
         url = URL_TOKEN.format(client_id=self.client_id)
 
-        # SUNAT espera username en formato "RUC USUARIO" CON espacio
-        username = f"{self.ruc} {self.usuario}" if self.usuario else self.ruc
+        # Formato correcto validado en Postman: "RUCUSUARIO" SIN espacio
+        # IMPORTANTE: A pesar de lo que dice el manual, SUNAT acepta el formato sin espacio
+        username = f"{self.ruc}{self.usuario}" if self.usuario else self.ruc
 
         data = {
             "grant_type": GRANT_TYPE,
