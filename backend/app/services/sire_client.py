@@ -1,10 +1,6 @@
 ﻿"""
 Cliente oficial SUNAT SIRE (Sistema Integrado de Registros Electronicos).
 
-Implementa segun el manual oficial de SUNAT (v22, marzo 2024):
-- Autenticacion OAuth2 Password flow
-- Descarga de propuesta RCE (compras) y RVIE (ventas)
-- Flujo asincrono con tickets
 
 IMPORTANTE: Los servicios SIRE NO deben consumirse desde navegador (CORS bloqueado).
 Por eso Felicita hace proxy desde el backend.

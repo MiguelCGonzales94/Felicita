@@ -28,7 +28,7 @@ async def consultar_ruc_sunat(ruc: str) -> dict:
 
 async def _consultar_real(ruc: str) -> dict:
     """Consulta real a decolecta.com con token en la URL."""
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with https.AsyncClient(timeout=TIMEOUT) as client:
         # Incluimos el token como parámetro en la URL como indica la documentación
         params = {
             "numero": ruc,
