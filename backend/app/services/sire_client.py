@@ -153,26 +153,26 @@ class SireClient:
         Proceso:
         1. POST /descargarpropuesta -> numTicket
         2. GET /consultarestadoticket -> estado y nombreArchivo
-        3. GET /descargararchivo -> ZIP con .txt dentro
+        3. POST /archivoreporte -> ZIP con .txt dentro
         4. Parsea el .txt a estructura
 
         Ver Manual SIRE Compras v28.
         """
         self._validar_periodo(periodo)
 
-        # 1. Solicitar descarga (obtener ticket) - Usar POST según manual
+        # 1. Solicitar descarga (obtener ticket)
         url_descarga = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rce/"
             f"propuesta/web/propuesta/{periodo}/exportapropuesta"
         )
         num_ticket = self._solicitar_ticket(url_descarga, metodo="GET")
 
-        # 2. Esperar a que el ticket este listo
-        archivo_info = self._esperar_ticket_rce(num_ticket)
+        # 2. Esperar a que el ticket este listo (con parametros perIni/perFin)
+        archivo_info = self._esperar_ticket_rce(num_ticket, periodo)
 
-        # 3. Descargar el archivo zip usando método específico para RCE
+        # 3. Descargar el archivo ZIP usando POST con body
         nombre_archivo = archivo_info.get("nombre_archivo", "")
-        contenido_zip = self._descargar_archivo_rce(num_ticket, nombre_archivo)
+        contenido_zip = self._descargar_archivo_rce(num_ticket, nombre_archivo, periodo)
 
         # 4. Parsear el txt dentro del zip
         return self._parsear_rce(contenido_zip, periodo)
@@ -182,21 +182,31 @@ class SireClient:
         """
         Descarga la propuesta RVIE (Registro de Ventas Electronico).
         Ver Manual SIRE Ventas v29.
+
+        Flujo correcto (validado por usuario en Postman):
+        1. Solicitar ticket de descarga
+        2. Consultar estado con perIni/perFin/numTicket
+        3. Descargar archivo con POST y parametros correctos
         """
         self._validar_periodo(periodo)
 
-        # Endpoint exacto según manual SIRE Ventas v29
+        # 1. Solicitar ticket de descarga
+        # Endpoint: GET /v1/contribuyente/migeigv/libros/rvie/propuesta/web/propuesta/{periodo}/exportapropuesta?codTipoArchivo=0
         url_descarga = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rvie/"
             f"propuesta/web/propuesta/{periodo}/exportapropuesta?codTipoArchivo=0"
         )
         num_ticket = self._solicitar_ticket(url_descarga, metodo="GET")
-        archivo_info = self._esperar_ticket_rvie(num_ticket)
 
-        # Descargar usando método específico para RVIE
+        # 2. Esperar a que el ticket este TERMINADO (usando perIni/perFin/numTicket)
+        archivo_info = self._esperar_ticket_rvie(num_ticket, periodo)
+
+        # 3. Descargar el archivo ZIP
+        # NOTA: Segun el manual y Postman, este endpoint usa POST y requiere mas parametros
         nombre_archivo = archivo_info.get("nombre_archivo", "")
-        contenido_zip = self._descargar_archivo_rvie(num_ticket, nombre_archivo)
+        contenido_zip = self._descargar_archivo_rvie(num_ticket, nombre_archivo, periodo)
 
+        # 4. Parsear el contenido
         return self._parsear_rvie(contenido_zip, periodo)
 
     # ── Helpers internos ─────────────────────────
@@ -237,147 +247,326 @@ class SireClient:
             raise SIREError("No se recibio numTicket", detalles=body)
         return num_ticket
 
-    def _esperar_ticket_rce(self, num_ticket: str, max_intentos: int = 20, delay_seg: int = 3) -> dict:
+    def _esperar_ticket_rce(self, num_ticket: str, periodo: str, max_intentos: int = 20, delay_seg: int = 3) -> dict:
         """
         Consulta el estado del ticket para RCE hasta que este 'Terminado'.
-        Ver Manual SIRE Compras v28.
+
+        FLUJO CORRECTO (igual que RVIE):
+        Endpoint: GET /v1/contribuyente/migeigv/libros/rce/gestionprocesosmasivos/web/masivo/consultaestadotickets
+        Parametros (query params):
+            - perIni: Periodo inicio (ej: 202603)
+            - perFin: Periodo fin (ej: 202603)
+            - page: Numero de pagina (1)
+            - perPage: Registros por pagina (20)
+            - numTicket: Numero de ticket
+
+        Respuesta contiene:
+            - registros[].desEstadoProceso: "Terminado" cuando esta listo
+            - registros[].archivoReporte[].nomArchivoReporte: nombre del archivo ZIP
         """
-        # Endpoint específico para RCE
-        url = (
+        # URL base con query params (formato correcto validado para RVIE, aplica igual para RCE)
+        url_base = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rce/"
-            f"gestionprocesosmasivos/web/masivo/consultaestadotickets?numTicket={num_ticket}"
+            f"gestionprocesosmasivos/web/masivo/consultaestadotickets"
         )
 
         for intento in range(max_intentos):
+            print(f"[SIRE-RCE] Intento {intento+1}/{max_intentos} consultando ticket {num_ticket}")
             time.sleep(delay_seg)
+
+            # Construir URL con query params (formato correcto)
+            url = f"{url_base}?perIni={periodo}&perFin={periodo}&page=1&perPage=20&numTicket={num_ticket}"
+            print(f"[SIRE-RCE] URL: {url}")
+
             try:
                 with httpx.Client(timeout=self.timeout) as client:
                     resp = client.get(url, headers=self._headers_autenticados())
             except httpx.HTTPError as e:
+                print(f"[SIRE-RCE] Error HTTP consultando ticket: {e}")
                 if intento == max_intentos - 1:
-                    raise SIREError(f"Error consultando ticket: {e}")
+                    raise SIREError(f"Error consultando ticket RCE: {e}")
+                continue
+
+            print(f"[SIRE-RCE] Response status: {resp.status_code}")
+
+            # MANEJAR ERRORES HTTP
+            if resp.status_code == 500:
+                print(f"[SIRE-RCE] Error 500 de SUNAT (intento {intento+1}), reintentando...")
+                continue
+
+            if resp.status_code == 401:
+                print(f"[SIRE-RCE] Token expirado, limpiando cache...")
+                TokenCache.limpiar(self._cache_key)
                 continue
 
             if resp.status_code != 200:
+                print(f"[SIRE-RCE] Status no exitoso: {resp.status_code}")
+                try:
+                    body = resp.json()
+                    print(f"[SIRE-RCE] Response JSON: {body}")
+                except:
+                    print(f"[SIRE-RCE] Response text: {resp.text[:200]}")
                 continue
 
             body = resp.json()
+            print(f"[SIRE-RCE] Respuesta JSON: {json.dumps(body, indent=2, ensure_ascii=False)[:500]}...")
+
+            # Buscar 'registros' directamente en la respuesta
             registros = body.get("registros") or body.get("data") or []
+
             if not registros:
+                print(f"[SIRE-RCE] No se encontraron registros. Keys: {list(body.keys())}")
                 continue
 
-            item = registros[0] if isinstance(registros, list) else registros
-            estado = (item.get("desEstadoProceso") or item.get("estado") or "").upper()
+            # El primer registro contiene la info del ticket
+            item = registros[0]
+            print(f"[SIRE-RCE] Primer item keys: {list(item.keys())}")
 
+            # Buscar estado: desEstadoProceso
+            estado = item.get("desEstadoProceso", "").upper()
+            print(f"[SIRE-RCE] Estado: '{estado}'")
+
+            # Verificar si TERMINÓ
             if "TERMINADO" in estado or "TERMINADA" in estado:
-                archivo_info = (item.get("archivoReporte") or [{}])[0] if item.get("archivoReporte") else item
+                # Extraer nombre del archivo del array archivoReporte
+                nombre_archivo = None
+                archivo_reporte = item.get("archivoReporte", [])
+                if isinstance(archivo_reporte, list) and len(archivo_reporte) > 0:
+                    nombre_archivo = archivo_reporte[0].get("nomArchivoReporte")
+
+                print(f"[SIRE-RCE] Ticket TERMINADO! Archivo: {nombre_archivo}")
                 return {
-                    "nombre_archivo": archivo_info.get("nomArchivoReporte") or item.get("nomArchivoReporte"),
-                    "cod_tipo_archivo": archivo_info.get("codTipoAchivoReporte") or "01",
+                    "nombre_archivo": nombre_archivo or f"RCE_{num_ticket}.zip",
+                    "cod_tipo_archivo": "01",
                     "ticket": num_ticket,
                 }
 
+            # Verificar si hay ERROR
             if "ERROR" in estado or "RECHAZADO" in estado:
+                print(f"[SIRE-RCE] Ticket con ERROR: {estado}")
                 raise SIREError(
-                    f"Ticket terminado con error: {estado}",
+                    f"Ticket RCE terminado con error: {estado}",
                     codigo="TICKET_ERROR",
                     detalles=item,
                 )
 
-        raise SIREError(f"Timeout esperando ticket {num_ticket}", codigo="TICKET_TIMEOUT")
+            print(f"[SIRE-RCE] Ticket aun en proceso, esperando...")
 
-    def _esperar_ticket_rvie(self, num_ticket: str, max_intentos: int = 20, delay_seg: int = 3) -> dict:
+        raise SIREError(f"Timeout esperando ticket RCE {num_ticket} despues de {max_intentos} intentos", codigo="TICKET_TIMEOUT")
+
+    def _esperar_ticket_rvie(self, num_ticket: str, periodo: str, max_intentos: int = 30, delay_seg: int = 5) -> dict:
         """
         Consulta el estado del ticket para RVIE hasta que este 'Terminado'.
-        Ver Manual SIRE Ventas v29.
+
+        FLUJO CORRECTO (validado por usuario en Postman):
+        Endpoint: GET /v1/contribuyente/migeigv/libros/rvie/gestionprocesosmasivos/web/masivo/consultaestadotickets
+        Parametros (query params):
+            - perIni: Periodo inicio (ej: 202603)
+            - perFin: Periodo fin (ej: 202603)
+            - page: Numero de pagina (1)
+            - perPage: Registros por pagina (20)
+            - numTicket: Numero de ticket
+
+        Respuesta contiene:
+            - registros[].desEstadoProceso: "Terminado" cuando esta listo
+            - registros[].archivoReporte[].nomArchivoReporte: nombre del archivo ZIP
         """
-        # Endpoint específico para RVIE
-        url = (
+        # URL base sin query params (se agregan dinamicamente)
+        url_base = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rvie/"
-            f"gestionprocesosmasivos/web/masivo/consultaestadotickets?numTicket={num_ticket}"
+            f"gestionprocesosmasivos/web/masivo/consultaestadotickets"
         )
 
         for intento in range(max_intentos):
+            print(f"[SIRE] Intento {intento+1}/{max_intentos} consultando ticket {num_ticket}")
             time.sleep(delay_seg)
+
+            # Construir URL con query params (formato correcto validado en Postman)
+            url = f"{url_base}?perIni={periodo}&perFin={periodo}&page=1&perPage=20&numTicket={num_ticket}"
+            print(f"[SIRE] URL: {url}")
+
             try:
                 with httpx.Client(timeout=self.timeout) as client:
                     resp = client.get(url, headers=self._headers_autenticados())
             except httpx.HTTPError as e:
+                print(f"[SIRE] Error HTTP consultando ticket: {e}")
                 if intento == max_intentos - 1:
                     raise SIREError(f"Error consultando ticket: {e}")
                 continue
 
+            print(f"[SIRE] Response status: {resp.status_code}")
+
+            # MANEJAR ERRORES HTTP
+            if resp.status_code == 500:
+                # Error interno de SUNAT - reintentar
+                print(f"[SIRE] Error 500 de SUNAT (intento {intento+1}), reintentando...")
+                continue
+
+            if resp.status_code == 401:
+                # Token expirado - reautenticar y reintentar
+                print(f"[SIRE] Token expirado, limpiando cache...")
+                TokenCache.limpiar(self._cache_key)
+                continue
+
             if resp.status_code != 200:
+                print(f"[SIRE] Status no exitoso: {resp.status_code}")
+                try:
+                    body = resp.json()
+                    print(f"[SIRE] Response JSON: {body}")
+                except:
+                    print(f"[SIRE] Response text: {resp.text[:200]}")
                 continue
 
             body = resp.json()
+            print(f"[SIRE] Respuesta JSON: {json.dumps(body, indent=2, ensure_ascii=False)[:500]}...")
+
+            # Buscar 'registros' directamente en la respuesta
             registros = body.get("registros") or body.get("data") or []
+
             if not registros:
+                print(f"[SIRE] No se encontraron registros. Keys: {list(body.keys())}")
                 continue
 
-            item = registros[0] if isinstance(registros, list) else registros
-            estado = (item.get("desEstadoProceso") or item.get("estado") or "").upper()
+            # El primer registro contiene la info del ticket
+            item = registros[0]
+            print(f"[SIRE] Primer item keys: {list(item.keys())}")
 
+            # Buscar estado: desEstadoProceso
+            estado = item.get("desEstadoProceso", "").upper()
+            print(f"[SIRE] Estado: '{estado}'")
+
+            # Verificar si TERMINÓ
             if "TERMINADO" in estado or "TERMINADA" in estado:
-                archivo_info = (item.get("archivoReporte") or [{}])[0] if item.get("archivoReporte") else item
+                # Extraer nombre del archivo del array archivoReporte
+                nombre_archivo = None
+                archivo_reporte = item.get("archivoReporte", [])
+                if isinstance(archivo_reporte, list) and len(archivo_reporte) > 0:
+                    nombre_archivo = archivo_reporte[0].get("nomArchivoReporte")
+
+                print(f"[SIRE] Ticket TERMINADO! Archivo: {nombre_archivo}")
                 return {
-                    "nombre_archivo": archivo_info.get("nomArchivoReporte") or item.get("nomArchivoReporte"),
-                    "cod_tipo_archivo": archivo_info.get("codTipoAchivoReporte") or "01",
+                    "nombre_archivo": nombre_archivo or f"RVIE_{num_ticket}.zip",
+                    "cod_tipo_archivo": "00",
                     "ticket": num_ticket,
+                    "nom_archivo_contenido": archivo_reporte[0].get("nomArchivoContenido") if nombre_archivo else None,
                 }
 
+            # Verificar si hay ERROR
             if "ERROR" in estado or "RECHAZADO" in estado:
+                print(f"[SIRE] Ticket con ERROR: {estado}")
                 raise SIREError(
                     f"Ticket RVIE terminado con error: {estado}",
                     codigo="TICKET_ERROR",
                     detalles=item,
                 )
 
-        raise SIREError(f"Timeout esperando ticket RVIE {num_ticket}", codigo="TICKET_TIMEOUT")
+            # Mostrar progreso
+            print(f"[SIRE] Ticket aun en proceso, esperando...")
 
-    def _descargar_archivo_rce(self, num_ticket: str, nombre_archivo: str) -> bytes:
+        raise SIREError(f"Timeout esperando ticket RVIE {num_ticket} despues de {max_intentos} intentos", codigo="TICKET_TIMEOUT")
+
+    def _descargar_archivo_rce(self, num_ticket: str, nombre_archivo: str, periodo: str) -> bytes:
         """
         Descarga el ZIP resultado del ticket para RCE.
-        Ver Manual SIRE Compras v28.
+
+        FLUJO CORRECTO (igual que RVIE):
+        Endpoint: POST /v1/contribuyente/migeigv/libros/rce/gestionprocesosmasivos/web/masivo/archivoreporte
+        Query params: nomArchivoReporte, codTipoAchivoReporte
+        Body JSON: codLibro, perTributario, codProceso, numTicket
         """
+        # URL base con query params obligatorios
         url = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rce/"
-            f"gestionprocesosmasivos/web/masivo/archivoreporte?nomArchivoReporte={nombre_archivo}"
-            f"&codTipoAchivoReporte=01&numTicket={num_ticket}"
+            f"gestionprocesosmasivos/web/masivo/archivoreporte"
+            f"?nomArchivoReporte={nombre_archivo}"
+            f"&codTipoAchivoReporte=01"
         )
+
+        # Body JSON con parametros adicionales
+        body_params = {
+            "codLibro": "",
+            "perTributario": periodo,
+            "codProceso": "10",
+            "numTicket": num_ticket
+        }
+
+        print(f"[SIRE-RCE] Descargando archivo: {nombre_archivo}")
+        print(f"[SIRE-RCE] URL: {url}")
+        print(f"[SIRE-RCE] Body: {body_params}")
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                resp = client.get(url, headers=self._headers_autenticados())
+                resp = client.post(
+                    url,
+                    headers=self._headers_autenticados(),
+                    json=body_params
+                )
         except httpx.HTTPError as e:
             raise SIREError(f"Error descargando archivo RCE: {e}")
 
         if resp.status_code != 200:
+            print(f"[SIRE-RCE] Error descargando (status {resp.status_code}): {resp.text[:200]}")
             raise SIREError(f"Error descargando archivo RCE (HTTP {resp.status_code})")
 
         return resp.content
 
-    def _descargar_archivo_rvie(self, num_ticket: str, nombre_archivo: str) -> bytes:
+    def _descargar_archivo_rvie(self, num_ticket: str, nombre_archivo: str, periodo: str) -> bytes:
         """
         Descarga el ZIP resultado del ticket para RVIE.
-        Ver Manual SIRE Ventas v29.
+
+        FLUJO CORRECTO (validado por usuario en Postman):
+        Segun el segundo request del usuario, el endpoint requiere:
+        - GET con query params para algunos parametros
+        - Body JSON para otros parametros
+
+        Parametros:
+        - nomArchivoReporte: nombre del archivo ZIP
+        - codTipoArchivoReporte: tipo de archivo (00 para propuesta)
+        - perTributario: periodo tributario
+        - codProceso: codigo de proceso (10 para exportar propuesta)
+        - numTicket: numero de ticket
         """
+        # URL base con query params obligatorios
         url = (
             f"{URL_BASE_SIRE}/v1/contribuyente/migeigv/libros/rvie/"
-            f"gestionprocesosmasivos/web/masivo/archivoreporte?nomArchivoReporte={nombre_archivo}"
-            f"&codTipoAchivoReporte=01&numTicket={num_ticket}"
+            f"gestionprocesosmasivos/web/masivo/archivoreporte"
+            f"?nomArchivoReporte={nombre_archivo}"
+            f"&codTipoArchivoReporte=00"
         )
+
+        # Body JSON con parametros adicionales
+        body_params = {
+            "codLibro": "",
+            "perTributario": periodo,
+            "codProceso": "10",
+            "numTicket": num_ticket
+        }
+
+        print(f"[SIRE] Descargando archivo: {nombre_archivo}")
+        print(f"[SIRE] URL: {url}")
+        print(f"[SIRE] Body: {body_params}")
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                resp = client.get(url, headers=self._headers_autenticados())
+                # Usar POST segun el manual para algunos endpoints de descarga
+                resp = client.post(
+                    url,
+                    headers=self._headers_autenticados(),
+                    json=body_params
+                )
         except httpx.HTTPError as e:
             raise SIREError(f"Error descargando archivo RVIE: {e}")
 
         if resp.status_code != 200:
+            print(f"[SIRE] Error descargando (status {resp.status_code}): {resp.text[:200]}")
             raise SIREError(f"Error descargando archivo RVIE (HTTP {resp.status_code})")
 
-        return resp.content
+        # Verificar que sea un ZIP (comienza con PK)
+        content = resp.content
+        if len(content) < 4 or content[:2] != b'PK':
+            print(f"[SIRE] Advertencia: El contenido no parece ser un ZIP. Primeros bytes: {content[:20]}")
+
+        return content
 
     def _parsear_rce(self, contenido_zip: bytes, periodo: str) -> dict:
         """
